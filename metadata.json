@@ -1,0 +1,6 @@
+{
+  "name": "Lentera CBT Online",
+  "description": "Platform ujian berbasis komputer (CBT) real-time dengan 5 jenis soal, sistem anti-curang, kontrol proktor langsung, dukungan multi-bahasa, rumus matematika KaTeX, dan penilaian otomatis.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
