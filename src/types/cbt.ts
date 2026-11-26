@@ -33,10 +33,12 @@ export interface BaseQuestion {
   bankId?: string;
   type: QuestionType;
   subject: string;
+  topic?: string;
   difficulty?: QuestionDifficulty;
   prompt: string;
   imageUrl?: string;
   imageCaption?: string;
+  explanation?: string;
   points: number;
   direction?: TextDirection;
 }
@@ -107,12 +109,40 @@ export interface ViolationLog {
   resolved: boolean;
 }
 
+export interface AuditLogEntry {
+  id: string;
+  timestamp: string;
+  actor: string;
+  action:
+    | 'join'
+    | 'resume'
+    | 'violation_warning'
+    | 'violation_lock'
+    | 'unlock'
+    | 'add_time'
+    | 'suspend'
+    | 'force_stop'
+    | 'submit'
+    | 'reset'
+    | 'announcement'
+    | 'grade_override'
+    | 'regrade';
+  studentId?: string;
+  studentName?: string;
+  nis?: string;
+  detail: string;
+}
+
 export interface QuestionGradeResult {
   questionId: string;
   type: QuestionType;
   earnedPoints: number;
   maxPoints: number;
   isCorrect: boolean;
+  isPartial?: boolean;
+  isAnswered?: boolean;
+  pendingManualReview?: boolean;
+  manualOverridden?: boolean;
   feedback: string;
 }
 
@@ -121,6 +151,14 @@ export interface ExamGradeSummary {
   earnedPoints: number;
   maxPoints: number;
   correctCount: number;
+  partialCount?: number;
+  incorrectCount?: number;
+  unansweredCount?: number;
+  pendingManualCount?: number;
+  passedKkm?: boolean;
+  kkmUsed?: number;
+  predicate?: string;
+  negativeMarkingApplied?: boolean;
   totalQuestions: number;
   breakdown: QuestionGradeResult[];
   gradedAt: string;
@@ -221,10 +259,20 @@ export interface ExamConfig {
   antiCheatEnabled: boolean;
   globalSuspended: boolean;
   maxViolationsBeforeLock: number;
+  violationPolicy?: 'lock' | 'force_submit';
   shuffleQuestions?: boolean;
+  shuffleOptions?: boolean;
+  preventBackNavigation?: boolean;
+  negativeMarking?: boolean;
+  negativePenaltyRatio?: number;
+  watermarkEnabled?: boolean;
   showResultToStudent?: boolean;
   requireRegisteredNis?: boolean;
   requireSessionCode?: boolean;
+  freePracticeEnabled?: boolean;
+  freePracticeScheduled?: boolean;
+  freePracticeStartAt?: string;
+  freePracticeEndAt?: string;
   proctorPin?: string;
   scheduleDate?: string;
   startTime?: string;
@@ -238,6 +286,7 @@ export interface ServerSnapshot {
   questions: Question[];
   sessions: StudentSession[];
   recentViolations: ViolationLog[];
+  auditLogs?: AuditLogEntry[];
   masterStudents: StudentMaster[];
   masterTeachers: TeacherMaster[];
   classes: ClassRoom[];

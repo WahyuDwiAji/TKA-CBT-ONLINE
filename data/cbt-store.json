@@ -1,0 +1,566 @@
+{
+  "examConfig": {
+    "id": "tryout-tka-sd-2026",
+    "title": "Tryout TKA SD — Tes Kemampuan Akademik",
+    "subtitle": "Bahasa Indonesia & Matematika · Pilihan Ganda, Pilihan Ganda Kompleks (Benar/Salah), & MCMA",
+    "durationMinutes": 90,
+    "antiCheatEnabled": true,
+    "globalSuspended": false,
+    "maxViolationsBeforeLock": 3,
+    "violationPolicy": "lock",
+    "shuffleQuestions": false,
+    "shuffleOptions": false,
+    "preventBackNavigation": false,
+    "negativeMarking": false,
+    "negativePenaltyRatio": 0.25,
+    "watermarkEnabled": true,
+    "freePracticeEnabled": false,
+    "freePracticeScheduled": false,
+    "schoolName": "SD Pedak",
+    "kkm": 75,
+    "showResultToStudent": true,
+    "requireRegisteredNis": false,
+    "requireSessionCode": false,
+    "proctorPin": "123456",
+    "roomName": "Ruang CBT 01 · Sesi Pagi",
+    "scheduleDate": "2026-11-26",
+    "startTime": "07:30",
+    "endTime": "09:30",
+    "sessionCode": "TKA-SD-01"
+  },
+  "questions": [
+    {
+      "id": "tka-sd-1",
+      "type": "multiple_choice",
+      "subject": "Matematika — Bilangan",
+      "difficulty": "medium",
+      "prompt": "Ibu membeli $\\frac{3}{4}$ kg gula pasir untuk membuat kue, lalu membeli lagi $1\\frac{1}{2}$ kg di warung. Jika sebanyak $\\frac{5}{8}$ kg gula pasir telah digunakan untuk adonan, berapakah sisa gula pasir Ibu sekarang?",
+      "points": 15,
+      "direction": "ltr",
+      "options": [
+        {
+          "id": "a",
+          "text": "$1\\frac{3}{8}$ kg"
+        },
+        {
+          "id": "b",
+          "text": "$1\\frac{5}{8}$ kg"
+        },
+        {
+          "id": "c",
+          "text": "$1\\frac{7}{8}$ kg"
+        },
+        {
+          "id": "d",
+          "text": "$2\\frac{1}{8}$ kg"
+        }
+      ],
+      "correctOptionId": "b",
+      "bankId": "bank-tka-sd"
+    },
+    {
+      "id": "tka-sd-2",
+      "type": "multiple_choice",
+      "subject": "Bahasa Indonesia — Teks Informasi",
+      "difficulty": "easy",
+      "prompt": "Bacalah teks berikut!\n\n\"Hutan bakau (mangrove) di pesisir pantai berperan penting menahan abrasi akibat gelombang laut. Selain itu, akar-akar bakau yang rapat menjadi tempat berlindung bagi ikan kecil, udang, dan kepiting sebelum mencari makan di laut lepas.\"\n\nBerdasarkan teks tersebut, manfaat utama akar bakau yang rapat bagi biota laut adalah ....",
+      "points": 15,
+      "direction": "ltr",
+      "options": [
+        {
+          "id": "a",
+          "text": "Menjadi tempat berlindung ikan kecil, udang, dan kepiting"
+        },
+        {
+          "id": "b",
+          "text": "Menghasilkan gelombang laut yang lebih besar di pesisir"
+        },
+        {
+          "id": "c",
+          "text": "Menggantikan fungsi air tawar bagi penduduk sekitar pantai"
+        },
+        {
+          "id": "d",
+          "text": "Mempercepat pengikisan tanah di sepanjang garis pantai"
+        }
+      ],
+      "correctOptionId": "a",
+      "bankId": "bank-tka-sd"
+    },
+    {
+      "id": "tka-sd-3",
+      "type": "mcma",
+      "subject": "Matematika — Bilangan",
+      "difficulty": "easy",
+      "prompt": "Perhatikan kelompok bilangan berikut: $11, 15, 17, 21, 23$.\nManakah di antara bilangan-bilangan tersebut yang merupakan **bilangan prima** antara $10$ dan $25$? (Pilih lebih dari satu jawaban yang benar)",
+      "points": 20,
+      "direction": "ltr",
+      "scoringMode": "partial",
+      "options": [
+        {
+          "id": "a",
+          "text": "$11$"
+        },
+        {
+          "id": "b",
+          "text": "$15$"
+        },
+        {
+          "id": "c",
+          "text": "$17$"
+        },
+        {
+          "id": "d",
+          "text": "$21$"
+        },
+        {
+          "id": "e",
+          "text": "$23$"
+        }
+      ],
+      "correctOptionIds": [
+        "a",
+        "c",
+        "e"
+      ],
+      "bankId": "bank-tka-sd"
+    },
+    {
+      "id": "tka-sd-4",
+      "type": "mcma",
+      "subject": "Bahasa Indonesia — Teks Fiksi",
+      "difficulty": "medium",
+      "prompt": "Bacalah cuplikan cerita berikut!\n\n\"Setiap pulang sekolah, Bima menyempatkan diri merawat kebun sayur kecil di belakang rumah bersama adiknya. Saat musim kemarau panjang tiba dan banyak tanaman tetangga layu, Bima membagikan hasil panen bayam dan tomatnya tanpa meminta bayaran. Ia juga mengajak teman-temannya menampung air cucian beras untuk menyiram tanaman.\"\n\nSikap terpuji yang ditunjukkan tokoh Bima dalam cerita tersebut adalah .... (Pilih lebih dari satu jawaban yang benar)",
+      "points": 20,
+      "direction": "ltr",
+      "scoringMode": "partial",
+      "options": [
+        {
+          "id": "a",
+          "text": "Peduli terhadap lingkungan dengan memanfaatkan air bekas cucian beras"
+        },
+        {
+          "id": "b",
+          "text": "Suka berbagi hasil panen kepada tetangga saat kesulitan"
+        },
+        {
+          "id": "c",
+          "text": "Menjual seluruh hasil panen dengan harga tinggi ketika kemarau"
+        },
+        {
+          "id": "d",
+          "text": "Tekun dan rajin merawat tanaman bersama anggota keluarga"
+        }
+      ],
+      "correctOptionIds": [
+        "a",
+        "b",
+        "d"
+      ],
+      "bankId": "bank-tka-sd"
+    },
+    {
+      "id": "tka-sd-5",
+      "type": "true_false",
+      "subject": "Matematika — Geometri & Pengukuran",
+      "difficulty": "hard",
+      "prompt": "Sebuah taman sekolah berbentuk gabungan persegi berukuran sisi $s = 12\\text{ m}$ dan kolam berbentuk persegi panjang berukuran $p = 10\\text{ m}$ dan $l = 6\\text{ m}$. Tentukan **Benar** atau **Salah** untuk setiap pernyataan berikut!",
+      "points": 15,
+      "direction": "ltr",
+      "statements": [
+        {
+          "id": "s1",
+          "text": "Luas taman berbentuk persegi adalah $L = s^2 = 144\\text{ m}^2$.",
+          "isTrue": true
+        },
+        {
+          "id": "s2",
+          "text": "Jumlah besar sudut dalam sebuah bangun datar segitiga adalah $360^\\circ$.",
+          "isTrue": false
+        },
+        {
+          "id": "s3",
+          "text": "Keliling kolam persegi panjang adalah $K = 2(p+l) = 32\\text{ m}$.",
+          "isTrue": true
+        }
+      ],
+      "bankId": "bank-tka-sd"
+    },
+    {
+      "id": "tka-sd-6",
+      "type": "true_false",
+      "subject": "Bahasa Indonesia — Teks Informasi",
+      "difficulty": "hard",
+      "prompt": "Bacalah teks informasi berikut!\n\n\"Program Bank Sampah Sekolah Dasar Nusantara mengajak siswa memilah sampah plastik dan kertas setiap hari Jumat. Sampah yang terkumpul ditimbang dan dicatat ke dalam buku tabungan kelas. Dana hasil daur ulang digunakan untuk membeli buku bacaan di pojok baca kelas.\"\n\nBerdasarkan teks di atas, tentukan apakah setiap pernyataan berikut **Benar (Sesuai)** atau **Salah (Tidak Sesuai)**!",
+      "points": 15,
+      "direction": "ltr",
+      "statements": [
+        {
+          "id": "s1",
+          "text": "Kegiatan pemilahan sampah di SD Nusantara dilaksanakan rutin setiap hari Jumat.",
+          "isTrue": true
+        },
+        {
+          "id": "s2",
+          "text": "Seluruh jenis sampah termasuk sisa makanan basah ditimbang di Bank Sampah.",
+          "isTrue": false
+        },
+        {
+          "id": "s3",
+          "text": "Hasil penjualan sampah daur ulang dimanfaatkan untuk menambah koleksi buku pojok baca kelas.",
+          "isTrue": true
+        }
+      ],
+      "bankId": "bank-tka-sd"
+    }
+  ],
+  "sessions": [
+    {
+      "id": "stu-dqwrwr-mwwz3knh",
+      "name": "1234242",
+      "nis": "dqwrwr",
+      "status": "submitted",
+      "answers": {
+        "tka-sd-1": "a",
+        "tka-sd-2": "a"
+      },
+      "doubtfulIds": [],
+      "violations": [],
+      "connected": true,
+      "startedAt": "2026-11-26T03:08:36.788Z",
+      "lastActiveAt": "2026-11-26T03:09:26.215Z",
+      "remainingSeconds": 5350,
+      "endedAt": "2026-11-26T03:09:26.215Z",
+      "gradeSummary": {
+        "totalScore": 15,
+        "earnedPoints": 15,
+        "maxPoints": 100,
+        "correctCount": 1,
+        "totalQuestions": 6,
+        "breakdown": [
+          {
+            "questionId": "tka-sd-1",
+            "type": "multiple_choice",
+            "earnedPoints": 0,
+            "maxPoints": 15,
+            "isCorrect": false,
+            "feedback": "Pilihan belum sesuai kunci jawaban."
+          },
+          {
+            "questionId": "tka-sd-2",
+            "type": "multiple_choice",
+            "earnedPoints": 15,
+            "maxPoints": 15,
+            "isCorrect": true,
+            "feedback": "Jawaban tepat."
+          },
+          {
+            "questionId": "tka-sd-3",
+            "type": "mcma",
+            "earnedPoints": 0,
+            "maxPoints": 20,
+            "isCorrect": false,
+            "feedback": "Tidak ada pilihan MCMA yang dipilih."
+          },
+          {
+            "questionId": "tka-sd-4",
+            "type": "mcma",
+            "earnedPoints": 0,
+            "maxPoints": 20,
+            "isCorrect": false,
+            "feedback": "Tidak ada pilihan MCMA yang dipilih."
+          },
+          {
+            "questionId": "tka-sd-5",
+            "type": "true_false",
+            "earnedPoints": 0,
+            "maxPoints": 15,
+            "isCorrect": false,
+            "feedback": "0 dari 3 pernyataan benar."
+          },
+          {
+            "questionId": "tka-sd-6",
+            "type": "true_false",
+            "earnedPoints": 0,
+            "maxPoints": 15,
+            "isCorrect": false,
+            "feedback": "0 dari 3 pernyataan benar."
+          }
+        ],
+        "gradedAt": "2026-11-26T03:09:26.216Z"
+      }
+    }
+  ],
+  "recentViolations": [],
+  "auditLogs": [
+    {
+      "id": "aud-1795662566216-g11q",
+      "timestamp": "2026-11-26T03:09:26.216Z",
+      "actor": "1234242",
+      "action": "submit",
+      "studentId": "stu-dqwrwr-mwwz3knh",
+      "studentName": "1234242",
+      "nis": "dqwrwr",
+      "detail": "Mengumpulkan ujian (Skor: 15)."
+    },
+    {
+      "id": "aud-1795662516788-t2u6",
+      "timestamp": "2026-11-26T03:08:36.788Z",
+      "actor": "1234242",
+      "action": "join",
+      "studentId": "stu-dqwrwr-mwwz3knh",
+      "studentName": "1234242",
+      "nis": "dqwrwr",
+      "detail": "Memulai sesi ujian baru."
+    }
+  ],
+  "masterStudents": [
+    {
+      "id": "ms-1",
+      "name": "Siti Aminah",
+      "nis": "6001",
+      "kelas": "KELAS 6 A",
+      "phone": "081234567801"
+    },
+    {
+      "id": "ms-2",
+      "name": "Budi Santoso",
+      "nis": "6002",
+      "kelas": "KELAS 6 A",
+      "phone": "081234567802"
+    },
+    {
+      "id": "ms-3",
+      "name": "Rina Marlina",
+      "nis": "6003",
+      "kelas": "KELAS 6 B",
+      "phone": "081234567803"
+    },
+    {
+      "id": "ms-4",
+      "name": "Ahmad Rizky",
+      "nis": "6004",
+      "kelas": "KELAS 6 B",
+      "phone": "081234567804"
+    },
+    {
+      "id": "ms-5",
+      "name": "Dewi Kartika",
+      "nis": "6005",
+      "kelas": "KELAS 6 A",
+      "phone": "081234567805"
+    },
+    {
+      "id": "ms-6",
+      "name": "Fajar Nugroho",
+      "nis": "6006",
+      "kelas": "KELAS 6 C",
+      "phone": "081234567806"
+    }
+  ],
+  "masterTeachers": [
+    {
+      "id": "mt-1",
+      "name": "Nurfajri, S.Pd.",
+      "nip": "198801122015031001",
+      "subjects": [
+        "Matematika — Bilangan",
+        "Matematika — Geometri & Pengukuran"
+      ],
+      "classes": [
+        "KELAS 6 A",
+        "KELAS 6 B"
+      ],
+      "phone": "081355001122"
+    },
+    {
+      "id": "mt-2",
+      "name": "Nuramalia, S.Pd.",
+      "nip": "199004212018022004",
+      "subjects": [
+        "Bahasa Indonesia — Teks Informasi",
+        "Bahasa Indonesia — Teks Fiksi"
+      ],
+      "classes": [
+        "KELAS 6 A",
+        "KELAS 6 C"
+      ],
+      "phone": "081355003344"
+    },
+    {
+      "id": "mt-3",
+      "name": "H. Ahmad Fauzan, M.Pd.",
+      "nip": "198506152010011009",
+      "subjects": [
+        "Matematika — Data",
+        "Bahasa Indonesia — Teks Informasi"
+      ],
+      "classes": [
+        "KELAS 6 B",
+        "KELAS 6 C"
+      ],
+      "phone": "081355007788"
+    }
+  ],
+  "classes": [
+    {
+      "id": "cls-1",
+      "name": "KELAS 6 A",
+      "level": "Tingkat 6 SD",
+      "homeroomTeacher": "Nurfajri, S.Pd."
+    },
+    {
+      "id": "cls-2",
+      "name": "KELAS 6 B",
+      "level": "Tingkat 6 SD",
+      "homeroomTeacher": "Nuramalia, S.Pd."
+    },
+    {
+      "id": "cls-3",
+      "name": "KELAS 6 C",
+      "level": "Tingkat 6 SD",
+      "homeroomTeacher": "H. Ahmad Fauzan, M.Pd."
+    }
+  ],
+  "subjects": [
+    {
+      "id": "sub-1",
+      "code": "MTK-BIL",
+      "name": "Matematika — Bilangan",
+      "category": "Numerasi TKA SD"
+    },
+    {
+      "id": "sub-2",
+      "code": "MTK-GEO",
+      "name": "Matematika — Geometri & Pengukuran",
+      "category": "Numerasi TKA SD"
+    },
+    {
+      "id": "sub-3",
+      "code": "MTK-DAT",
+      "name": "Matematika — Data",
+      "category": "Numerasi TKA SD"
+    },
+    {
+      "id": "sub-4",
+      "code": "BIN-INF",
+      "name": "Bahasa Indonesia — Teks Informasi",
+      "category": "Literasi TKA SD"
+    },
+    {
+      "id": "sub-5",
+      "code": "BIN-FIK",
+      "name": "Bahasa Indonesia — Teks Fiksi",
+      "category": "Literasi TKA SD"
+    }
+  ],
+  "questionBanks": [
+    {
+      "id": "bank-tka-sd",
+      "code": "TKA-SD-01",
+      "name": "Paket Tryout TKA SD Utama (Literasi & Numerasi)",
+      "subject": "Bahasa Indonesia & Matematika",
+      "targetClass": "KELAS 6 A - 6 C",
+      "isActive": true,
+      "targetCounts": {
+        "multiple_choice": 15,
+        "mcma": 10,
+        "true_false": 5,
+        "complex_multiple_choice": 0,
+        "matching": 0,
+        "essay": 0
+      }
+    },
+    {
+      "id": "bank-tka-mtk",
+      "code": "TKA-MTK-02",
+      "name": "Tryout TKA SD — Matematika (Numerasi)",
+      "subject": "Matematika",
+      "targetClass": "KELAS 6 A",
+      "isActive": false,
+      "targetCounts": {
+        "multiple_choice": 15,
+        "mcma": 10,
+        "true_false": 5,
+        "complex_multiple_choice": 0,
+        "matching": 0,
+        "essay": 0
+      }
+    },
+    {
+      "id": "bank-tka-bin",
+      "code": "TKA-BIN-03",
+      "name": "Tryout TKA SD — Bahasa Indonesia (Literasi)",
+      "subject": "Bahasa Indonesia",
+      "targetClass": "KELAS 6 A - 6 C",
+      "isActive": false,
+      "targetCounts": {
+        "multiple_choice": 15,
+        "mcma": 10,
+        "true_false": 5,
+        "complex_multiple_choice": 0,
+        "matching": 0,
+        "essay": 0
+      }
+    }
+  ],
+  "materials": [
+    {
+      "id": "mat-1",
+      "title": "Kisi-Kisi Numerasi TKA SD: Bilangan, Pecahan & Geometri",
+      "subject": "Matematika",
+      "targetClass": "KELAS 6",
+      "summary": "Pembahasan operasi pecahan campuran, bilangan prima, serta rumus keliling & luas bangun datar.",
+      "content": "TKA Matematika SD menguji elemen Bilangan, Geometri & Pengukuran, serta Data melalui soal Pilihan Ganda Sederhana, PG Kompleks MCMA, dan PGK Kategori (Benar/Salah). Contoh pecahan: $\\frac{3}{4} + 1\\frac{1}{2} - \\frac{5}{8} = 1\\frac{5}{8}$. Luas persegi: $L = s^2$, keliling persegi panjang: $K = 2(p + l)$.",
+      "createdAt": "2026-11-26T03:06:30.747Z"
+    },
+    {
+      "id": "mat-2",
+      "title": "Kisi-Kisi Literasi Membaca TKA SD: Teks Informasi & Teks Fiksi",
+      "subject": "Bahasa Indonesia",
+      "targetClass": "KELAS 6",
+      "summary": "Strategi memahami ide pokok, informasi tersurat, inferensi, serta evaluasi teks bacaan TKA SD.",
+      "content": "TKA Bahasa Indonesia SD mengukur keterampilan membaca pada Teks Informasi dan Teks Fiksi meliputi pemahaman tekstual, inferensial, serta evaluasi/apresiasi. Cermati kata kunci setiap paragraf sebelum menentukan pilihan MCMA maupun kategori Benar/Salah.",
+      "createdAt": "2026-11-26T03:06:30.747Z"
+    }
+  ],
+  "users": [
+    {
+      "id": "usr-1",
+      "name": "Administrator Utama",
+      "username": "admin",
+      "role": "admin",
+      "active": true
+    },
+    {
+      "id": "usr-2",
+      "name": "Nurfajri, S.Pd.",
+      "username": "nurfajri",
+      "role": "guru",
+      "active": true
+    },
+    {
+      "id": "usr-3",
+      "name": "Nuramalia, S.Pd.",
+      "username": "nuramalia",
+      "role": "proktor",
+      "active": true
+    }
+  ],
+  "announcements": [
+    {
+      "id": "ann-1",
+      "title": "Jadwal Tryout TKA SD Sesi 1",
+      "content": "Mohon seluruh peserta masuk ke Exam Browser 10 menit sebelum jadwal dimulai.",
+      "createdAt": "2026-11-26T03:06:30.747Z",
+      "author": "Administrator Utama"
+    },
+    {
+      "id": "ann-2",
+      "title": "Tata Tertib Sistem Anti-Curang CBT",
+      "content": "Siswa dilarang berpindah tab atau membuka aplikasi lain saat ujian berlangsung. Pelanggaran otomatis mengunci layar ujian.",
+      "createdAt": "2026-11-26T03:06:30.747Z",
+      "author": "Proktor Ruang"
+    }
+  ]
+}

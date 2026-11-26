@@ -8,7 +8,16 @@ export const DEFAULT_EXAM_CONFIG: ExamConfig = {
   durationMinutes: 90,
   antiCheatEnabled: true,
   globalSuspended: false,
-  maxViolationsBeforeLock: 1,
+  maxViolationsBeforeLock: 3,
+  violationPolicy: 'lock',
+  shuffleQuestions: false,
+  shuffleOptions: false,
+  preventBackNavigation: false,
+  negativeMarking: false,
+  negativePenaltyRatio: 0.25,
+  watermarkEnabled: true,
+  freePracticeEnabled: false,
+  freePracticeScheduled: false,
 };
 
 export const DEFAULT_QUESTIONS: Question[] = [

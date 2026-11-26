@@ -225,20 +225,28 @@ export function buildExamResultReport(options: {
       const g = gradeQuestion(
         q,
         ans,
-        q.type === 'essay' ? s.manualEssayOverrides?.[q.id] : undefined
+        s.manualEssayOverrides?.[q.id],
+        {
+          negativeMarking: examConfig.negativeMarking,
+          negativePenaltyRatio: examConfig.negativePenaltyRatio,
+          kkm,
+        }
       );
       typeScores[q.type].earned += g.earnedPoints;
       earnedLive += g.earnedPoints;
     }
 
+    const clampedLiveEarned = Math.max(0, earnedLive);
     const isFinished = s.status === 'submitted' || s.status === 'force_stopped';
-    const earnedPoints = s.gradeSummary ? s.gradeSummary.earnedPoints : Number(earnedLive.toFixed(1));
+    const earnedPoints = s.gradeSummary
+      ? s.gradeSummary.earnedPoints
+      : Number(clampedLiveEarned.toFixed(1));
     const maxPoints = s.gradeSummary ? s.gradeSummary.maxPoints : maxPointsAll;
     const computedScore =
       s.gradeSummary !== undefined
         ? s.gradeSummary.totalScore
         : maxPoints > 0
-          ? Number(((earnedLive / maxPoints) * 100).toFixed(1))
+          ? Number(((clampedLiveEarned / maxPoints) * 100).toFixed(1))
           : 0;
 
     let kkmStatus: StudentResultReportRow['kkmStatus'] = 'Proses';
@@ -369,7 +377,7 @@ export function exportExamResultsPdf(options: ExamPdfOptions): void {
 
   // 1. Kop Surat / Institutional Header
   const schoolName = sanitizePdfText(
-    (examConfig.schoolName || 'SDN HARAPAN NUSANTARA').toUpperCase()
+    (examConfig.schoolName || 'SD PEDAK').toUpperCase()
   );
   const examTitle = sanitizePdfText(examConfig.title || 'Tryout TKA SD');
   const examSubtitle = sanitizePdfText(examConfig.subtitle || 'Ujian Berbasis Komputer (CBT Online)');

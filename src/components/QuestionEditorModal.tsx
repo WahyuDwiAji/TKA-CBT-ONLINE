@@ -1,8 +1,14 @@
-import React, { useMemo, useRef, useState } from 'react';
-import { Eye, ImagePlus, PencilLine, Plus, Trash2, Upload, X } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ClipboardPaste, Eye, ImagePlus, PencilLine, Plus, Trash2, Upload, X } from 'lucide-react';
 import { MathText } from './MathText';
 import { QuestionStudentPreview } from './QuestionStudentPreview';
-import { sanitizeImageUrl, uploadQuestionImageFile } from '../lib/imageUpload';
+import {
+  extractImageFromClipboardData,
+  readImageFromNavigatorClipboard,
+  resolveClipboardImageToFile,
+  sanitizeImageUrl,
+  uploadQuestionImageFile,
+} from '../lib/imageUpload';
 import type {
   ChoiceOption,
   Question,
@@ -69,10 +75,12 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
   const [subject, setSubject] = useState(
     initialQuestion?.subject || TKA_SD_SUBJECTS[0]
   );
+  const [topic, setTopic] = useState(initialQuestion?.topic || '');
   const [difficulty, setDifficulty] = useState<QuestionDifficulty>(
     initialQuestion?.difficulty || 'medium'
   );
   const [prompt, setPrompt] = useState(initialQuestion?.prompt || '');
+  const [explanation, setExplanation] = useState(initialQuestion?.explanation || '');
   const [imageUrl, setImageUrl] = useState(initialQuestion?.imageUrl || '');
   const [imageCaption, setImageCaption] = useState(initialQuestion?.imageCaption || '');
   const [imageUploading, setImageUploading] = useState(false);
@@ -140,7 +148,7 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
     setPrompt((prev) => (prev ? `${prev} ${snippet}` : snippet));
   };
 
-  const handleQuestionImageFile = async (file: File) => {
+  const handleQuestionImageFile = useCallback(async (file: File) => {
     setImageError('');
     setImageUploading(true);
     try {
@@ -153,9 +161,9 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
     } finally {
       setImageUploading(false);
     }
-  };
+  }, []);
 
-  const handleOptionImageFile = async (optionId: string, file: File) => {
+  const handleOptionImageFile = useCallback(async (optionId: string, file: File) => {
     setImageError('');
     setUploadingOptionId(optionId);
     try {
@@ -170,22 +178,84 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
     } finally {
       setUploadingOptionId(null);
     }
-  };
+  }, []);
+
+  const applyClipboardResultToQuestion = useCallback(
+    async (extracted: NonNullable<ReturnType<typeof extractImageFromClipboardData>>) => {
+      setImageError('');
+      try {
+        const resolved = await resolveClipboardImageToFile(extracted);
+        if (resolved.file) {
+          await handleQuestionImageFile(resolved.file);
+        } else if (resolved.imageUrl) {
+          setImageUrl(resolved.imageUrl);
+        }
+      } catch (err) {
+        setImageError(
+          err instanceof Error ? err.message : 'Gagal menempelkan gambar dari clipboard.'
+        );
+      }
+    },
+    [handleQuestionImageFile]
+  );
 
   const handlePromptPaste = (e: React.ClipboardEvent) => {
-    const items = e.clipboardData?.items;
-    if (!items) return;
-    for (let i = 0; i < items.length; i++) {
-      if (items[i].type.startsWith('image/')) {
-        const file = items[i].getAsFile();
-        if (file) {
-          e.preventDefault();
-          void handleQuestionImageFile(file);
-          return;
+    const extracted = extractImageFromClipboardData(e.clipboardData);
+    if (!extracted) return;
+    e.preventDefault();
+    e.stopPropagation();
+    void applyClipboardResultToQuestion(extracted);
+  };
+
+  const handleOptionPaste = (optionId: string, e: React.ClipboardEvent) => {
+    const extracted = extractImageFromClipboardData(e.clipboardData);
+    if (!extracted) return;
+    e.preventDefault();
+    e.stopPropagation();
+    void (async () => {
+      setImageError('');
+      try {
+        const resolved = await resolveClipboardImageToFile(extracted);
+        if (resolved.file) {
+          await handleOptionImageFile(optionId, resolved.file);
+        } else if (resolved.imageUrl) {
+          setOptions((prev) =>
+            prev.map((o) => (o.id === optionId ? { ...o, imageUrl: resolved.imageUrl } : o))
+          );
         }
+      } catch (err) {
+        setImageError(
+          err instanceof Error ? err.message : 'Gagal menempelkan gambar pada opsi.'
+        );
       }
+    })();
+  };
+
+  const handlePasteFromClipboardButton = async () => {
+    setImageError('');
+    try {
+      const file = await readImageFromNavigatorClipboard();
+      await handleQuestionImageFile(file);
+    } catch (err) {
+      setImageError(
+        err instanceof Error ? err.message : 'Gagal membaca gambar dari clipboard.'
+      );
     }
   };
+
+  // Support Ctrl+V / Cmd+V anywhere inside the modal while editing
+  useEffect(() => {
+    if (modalTab !== 'editor') return;
+    const onWindowPaste = (e: ClipboardEvent) => {
+      if (e.defaultPrevented) return;
+      const extracted = extractImageFromClipboardData(e.clipboardData);
+      if (!extracted) return;
+      e.preventDefault();
+      void applyClipboardResultToQuestion(extracted);
+    };
+    window.addEventListener('paste', onWindowPaste);
+    return () => window.removeEventListener('paste', onWindowPaste);
+  }, [modalTab, applyClipboardResultToQuestion]);
 
   const buildDraftQuestion = (strict: boolean): { question: Question | null; error?: string } => {
     const cleanImageUrl = sanitizeImageUrl(imageUrl) || undefined;
@@ -207,10 +277,12 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
       id,
       bankId: initialQuestion?.bankId,
       subject: subject.trim() || 'Umum',
+      topic: topic.trim() || undefined,
       difficulty,
       prompt: prompt.trim(),
       imageUrl: cleanImageUrl,
       imageCaption: cleanImageUrl && imageCaption.trim() ? imageCaption.trim() : undefined,
+      explanation: explanation.trim() || undefined,
       points: Math.max(1, Number(points) || 10),
       direction,
     };
@@ -285,8 +357,10 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
     initialQuestion?.bankId,
     type,
     subject,
+    topic,
     difficulty,
     prompt,
+    explanation,
     imageUrl,
     imageCaption,
     points,
@@ -311,29 +385,29 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/55 p-4 overflow-y-auto">
-      <div className="w-full max-w-4xl bg-white border border-slate-200 rounded-2xl shadow-2xl overflow-hidden my-6 flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-[2px] p-4 overflow-y-auto">
+      <div className="w-full max-w-4xl bg-white border border-slate-200 rounded-3xl shadow-xl overflow-hidden my-6 flex flex-col max-h-[90vh]">
         {/* Header with Mode Switch */}
-        <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-4 border-b border-slate-200 bg-white">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-4 border-b border-slate-200/80 bg-gradient-to-r from-indigo-50/60 via-sky-50/30 to-white">
           <div>
-            <h2 className="text-base font-bold text-slate-900">
+            <h2 className="text-sm font-bold text-slate-900">
               {initialQuestion ? 'Edit Butir Soal' : 'Tambah Butir Soal Baru'}
             </h2>
             {targetBankLabel && (
               <p className="text-xs text-slate-500 mt-0.5">
-                Bank Tujuan: <span className="font-semibold text-slate-700">{targetBankLabel}</span>
+                Bank Tujuan: <span className="font-semibold text-indigo-700">{targetBankLabel}</span>
               </p>
             )}
           </div>
 
           <div className="flex items-center gap-2">
-            <div className="inline-flex p-1 bg-slate-100 rounded-xl border border-slate-200">
+            <div className="inline-flex p-1 bg-indigo-50/80 border border-indigo-100 rounded-xl">
               <button
                 type="button"
                 onClick={() => setModalTab('editor')}
                 className={`h-8 px-3 inline-flex items-center gap-1.5 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap ${
                   modalTab === 'editor'
-                    ? 'bg-white text-blue-700 shadow-xs'
+                    ? 'bg-white text-indigo-700 shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
@@ -345,43 +419,43 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
                 onClick={() => setModalTab('preview')}
                 className={`h-8 px-3 inline-flex items-center gap-1.5 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap ${
                   modalTab === 'preview'
-                    ? 'bg-white text-blue-700 shadow-xs'
+                    ? 'bg-white text-indigo-700 shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
                 <Eye className="w-3.5 h-3.5" />
-                Pratinjau Soal Siswa
+                Pratinjau Siswa
               </button>
             </div>
             <button
               type="button"
               onClick={onClose}
-              className="w-9 h-9 inline-flex items-center justify-center text-slate-500 hover:text-slate-900 rounded-xl hover:bg-slate-100 transition-colors"
+              className="w-8 h-8 inline-flex items-center justify-center text-slate-500 hover:text-slate-900 rounded-lg hover:bg-white/80 transition-colors"
               aria-label="Tutup"
             >
-              <X className="w-5 h-5" />
+              <X className="w-4 h-4" />
             </button>
           </div>
         </div>
 
         <form onSubmit={handleSubmit} className="flex-1 flex flex-col min-h-0">
-          <div className="flex-1 overflow-y-auto p-6 space-y-5 bg-slate-50/50">
+          <div className="flex-1 overflow-y-auto p-6 space-y-5 bg-[#F7F8FC]">
             {errorMsg && (
-              <div className="px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-xs font-medium text-red-700">
+              <div className="px-4 py-3 bg-rose-50 border border-rose-200 rounded-xl text-xs font-medium text-rose-700">
                 {errorMsg}
               </div>
             )}
 
             {modalTab === 'preview' && previewQuestion ? (
               <div className="space-y-4">
-                <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-xs text-blue-900">
-                    Ini adalah simulasi tampilan persis seperti di <strong>Exam Browser Siswa</strong>. Anda dapat mencoba memilih jawaban sebelum menyimpan soal ini ke bank/ujian.
+                <div className="bg-sky-50/70 border border-sky-200/80 rounded-xl px-4 py-3 flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs text-sky-900">
+                    Simulasi tampilan persis seperti di <strong>Exam Browser Siswa</strong>. Coba pilih jawaban sebelum menyimpan.
                   </p>
                   <button
                     type="button"
                     onClick={() => setModalTab('editor')}
-                    className="h-8 px-3 text-xs font-semibold text-blue-700 bg-white border border-blue-200 hover:bg-blue-100 rounded-lg whitespace-nowrap"
+                    className="h-8 px-3 text-xs font-medium text-sky-800 bg-white border border-sky-200 hover:bg-sky-100/50 rounded-lg whitespace-nowrap"
                   >
                     Kembali ke Editor
                   </button>
@@ -394,7 +468,7 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
                 />
               </div>
             ) : (
-              <div className="space-y-6 bg-white border border-slate-200 rounded-2xl p-5">
+              <div className="space-y-6 bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs">
                 {/* Categorization & Question Metadata */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-4">
                   <div className="lg:col-span-4">
@@ -404,7 +478,7 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
                     <select
                       value={type}
                       onChange={(e) => setType(e.target.value as QuestionType)}
-                      className="w-full h-10 px-3 text-sm bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600"
+                      className="w-full h-10 px-3 text-sm bg-slate-50/80 focus:bg-white border border-slate-200 focus:border-indigo-500 rounded-xl focus:outline-none"
                     >
                       {TKA_SD_OFFICIAL_TYPES.map((qt) => (
                         <option key={qt} value={qt}>
@@ -424,7 +498,7 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
                       value={subject}
                       onChange={(e) => setSubject(e.target.value)}
                       placeholder="cth. Matematika — Bilangan"
-                      className="w-full h-10 px-3 text-sm bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600"
+                      className="w-full h-10 px-3 text-sm bg-slate-50/80 focus:bg-white border border-slate-200 focus:border-indigo-500 rounded-xl focus:outline-none"
                     />
                     <datalist id="tka-sd-subjects">
                       {mergedSubjectOptions.map((subj) => (
@@ -440,7 +514,7 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
                     <select
                       value={difficulty}
                       onChange={(e) => setDifficulty(e.target.value as QuestionDifficulty)}
-                      className="w-full h-10 px-3 text-sm font-medium bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600"
+                      className="w-full h-10 px-3 text-sm font-medium bg-slate-50/80 focus:bg-white border border-slate-200 focus:border-indigo-500 rounded-xl focus:outline-none"
                     >
                       {QUESTION_DIFFICULTY_ORDER.map((diff) => (
                         <option key={diff} value={diff}>
@@ -461,7 +535,7 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
                         max={100}
                         value={points}
                         onChange={(e) => setPoints(Number(e.target.value))}
-                        className="w-full h-10 px-2.5 text-sm font-mono tabular-nums bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600"
+                        className="w-full h-10 px-2.5 text-sm font-mono tabular-nums bg-slate-50/80 focus:bg-white border border-slate-200 focus:border-indigo-500 rounded-xl focus:outline-none"
                       />
                     </div>
                     <div>
@@ -471,7 +545,7 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
                       <select
                         value={direction}
                         onChange={(e) => setDirection(e.target.value as TextDirection)}
-                        className="w-full h-10 px-2 text-xs bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600"
+                        className="w-full h-10 px-2 text-xs bg-slate-50/80 focus:bg-white border border-slate-200 focus:border-indigo-500 rounded-xl focus:outline-none"
                       >
                         <option value="auto">Auto</option>
                         <option value="ltr">LTR</option>
@@ -485,7 +559,7 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
                   <div>
                     <label className="block text-xs font-medium text-slate-600 mb-1.5">
-                      Pertanyaan (Mendukung LaTeX $...$ / $$...$$, Ctrl+V tempel gambar)
+                      Pertanyaan (LaTeX $...$, Ctrl+V tempel gambar)
                     </label>
                     <textarea
                       rows={5}
@@ -494,7 +568,7 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
                       onPaste={handlePromptPaste}
                       dir={direction === 'rtl' ? 'rtl' : 'ltr'}
                       placeholder="Tulis pertanyaan di sini... Gunakan $x^2$ untuk rumus atau Ctrl+V untuk menempel gambar langsung."
-                      className="w-full px-3 py-2.5 text-sm bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600"
+                      className="w-full px-3 py-2.5 text-sm bg-slate-50/80 focus:bg-white border border-slate-200 focus:border-indigo-500 rounded-xl focus:outline-none"
                     />
                     <div className="mt-2 flex flex-wrap gap-1.5">
                       {MATH_SNIPPETS.map((s) => (
@@ -502,7 +576,7 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
                           key={s.label}
                           type="button"
                           onClick={() => insertIntoPrompt(s.code)}
-                          className="h-7 px-2 text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md border border-slate-200 transition-colors whitespace-nowrap"
+                          className="h-7 px-2.5 text-xs font-medium bg-indigo-50/80 hover:bg-indigo-100 text-indigo-700 rounded-lg transition-colors whitespace-nowrap"
                         >
                           + {s.label}
                         </button>
@@ -512,19 +586,30 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
                           key={c.label}
                           type="button"
                           onClick={() => insertIntoPrompt(c.value)}
-                          className="h-7 px-2 text-xs bg-slate-50 hover:bg-slate-200 text-slate-700 rounded-md border border-slate-200 transition-colors whitespace-nowrap"
+                          className="h-7 px-2 text-xs bg-white hover:bg-slate-50 text-slate-700 rounded-lg border border-slate-200 transition-colors whitespace-nowrap"
                         >
                           {c.label}
                         </button>
                       ))}
                     </div>
+                    {(imageUploading || imageError) && (
+                      <div
+                        className={`mt-2 px-3 py-1.5 rounded-lg text-xs font-medium border ${
+                          imageError
+                            ? 'bg-rose-50 border-rose-200 text-rose-700'
+                            : 'bg-indigo-50 border-indigo-200 text-indigo-700'
+                        }`}
+                      >
+                        {imageError || 'Mengunggah gambar yang ditempel...'}
+                      </div>
+                    )}
                   </div>
 
                   <div>
                     <label className="block text-xs font-medium text-slate-600 mb-1.5">
                       Pratinjau Cepat Teks &amp; Rumus
                     </label>
-                    <div className="min-h-[144px] p-4 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 space-y-3">
+                    <div className="min-h-[144px] p-4 bg-indigo-50/25 border border-indigo-100/90 rounded-xl text-sm text-slate-800 space-y-3">
                       {prompt.trim() ? (
                         <MathText text={prompt} direction={direction} />
                       ) : (
@@ -544,7 +629,7 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
                 </div>
 
                 {/* Question Stimulus Image Upload / URL Section */}
-                <div className="pt-4 border-t border-slate-200 space-y-3">
+                <div className="pt-4 border-t border-slate-100 space-y-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
                       <span className="text-sm font-semibold text-slate-900">
@@ -562,7 +647,7 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
                           setImageCaption('');
                           setImageError('');
                         }}
-                        className="h-8 px-3 inline-flex items-center gap-1.5 text-xs font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg whitespace-nowrap"
+                        className="h-8 px-3 inline-flex items-center gap-1.5 text-xs font-medium text-rose-600 bg-rose-50 hover:bg-rose-100 rounded-lg whitespace-nowrap"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                         Hapus Gambar
@@ -571,7 +656,7 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
                   </div>
 
                   {imageError && (
-                    <div className="px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700 font-medium">
+                    <div className="px-3 py-2 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-700 font-medium">
                       {imageError}
                     </div>
                   )}
@@ -590,6 +675,8 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
 
                   <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
                     <div
+                      tabIndex={0}
+                      onPaste={handlePromptPaste}
                       onDragOver={(e) => {
                         e.preventDefault();
                         setImageDragOver(true);
@@ -601,10 +688,10 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
                         const file = e.dataTransfer.files?.[0];
                         if (file) void handleQuestionImageFile(file);
                       }}
-                      className={`lg:col-span-6 border-2 border-dashed rounded-xl p-4 text-center transition-colors ${
+                      className={`lg:col-span-6 border border-dashed rounded-2xl p-4 text-center transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-400/50 ${
                         imageDragOver
-                          ? 'border-blue-600 bg-blue-50'
-                          : 'border-slate-300 bg-slate-50 hover:border-blue-400'
+                          ? 'border-indigo-500 bg-indigo-50/70'
+                          : 'border-indigo-200 bg-indigo-50/30 hover:border-indigo-300'
                       }`}
                     >
                       {sanitizeImageUrl(imageUrl) ? (
@@ -614,33 +701,57 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
                             alt={imageCaption || 'Pratinjau gambar soal'}
                             className="max-h-48 mx-auto rounded-lg border border-slate-200 bg-white object-contain"
                           />
-                          <button
-                            type="button"
-                            disabled={imageUploading}
-                            onClick={() => imageInputRef.current?.click()}
-                            className="h-8 px-3 inline-flex items-center gap-1.5 text-xs font-semibold text-blue-700 bg-white border border-blue-200 hover:bg-blue-50 rounded-lg"
-                          >
-                            <Upload className="w-3.5 h-3.5" />
-                            {imageUploading ? 'Mengunggah...' : 'Ganti Gambar'}
-                          </button>
+                          <div className="flex flex-wrap items-center justify-center gap-2">
+                            <button
+                              type="button"
+                              disabled={imageUploading}
+                              onClick={() => imageInputRef.current?.click()}
+                              className="h-8 px-3 inline-flex items-center gap-1.5 text-xs font-medium text-indigo-700 bg-white border border-indigo-200 hover:bg-indigo-50 rounded-lg"
+                            >
+                              <Upload className="w-3.5 h-3.5" />
+                              {imageUploading ? 'Mengunggah...' : 'Ganti Gambar'}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={imageUploading}
+                              onClick={() => void handlePasteFromClipboardButton()}
+                              className="h-8 px-3 inline-flex items-center gap-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg"
+                            >
+                              <ClipboardPaste className="w-3.5 h-3.5" />
+                              Tempel Baru (Ctrl+V)
+                            </button>
+                          </div>
                         </div>
                       ) : (
-                        <div className="py-2 space-y-2">
-                          <ImagePlus className="w-7 h-7 text-blue-600 mx-auto" />
-                          <p className="text-xs font-semibold text-slate-700">
+                        <div className="py-2 space-y-2.5">
+                          <div className="w-10 h-10 rounded-xl bg-white border border-indigo-100 text-indigo-600 flex items-center justify-center mx-auto shadow-2xs">
+                            <ImagePlus className="w-5 h-5" />
+                          </div>
+                          <p className="text-xs font-medium text-slate-600">
                             {imageUploading
                               ? 'Mengunggah dan mengoptimalkan gambar...'
-                              : 'Tarik & lepas file gambar ke sini atau pilih dari perangkat'}
+                              : 'Tarik & lepas, pilih file, atau tekan Ctrl+V di mana saja pada editor'}
                           </p>
-                          <button
-                            type="button"
-                            disabled={imageUploading}
-                            onClick={() => imageInputRef.current?.click()}
-                            className="h-8 px-3.5 inline-flex items-center gap-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-slate-400 rounded-lg"
-                          >
-                            <Upload className="w-3.5 h-3.5" />
-                            Pilih File Gambar
-                          </button>
+                          <div className="flex flex-wrap items-center justify-center gap-2">
+                            <button
+                              type="button"
+                              disabled={imageUploading}
+                              onClick={() => imageInputRef.current?.click()}
+                              className="h-8 px-3.5 inline-flex items-center gap-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-400 rounded-lg"
+                            >
+                              <Upload className="w-3.5 h-3.5" />
+                              Pilih File Gambar
+                            </button>
+                            <button
+                              type="button"
+                              disabled={imageUploading}
+                              onClick={() => void handlePasteFromClipboardButton()}
+                              className="h-8 px-3 inline-flex items-center gap-1.5 text-xs font-medium text-indigo-700 bg-white border border-indigo-200 hover:bg-indigo-50 disabled:opacity-50 rounded-lg"
+                            >
+                              <ClipboardPaste className="w-3.5 h-3.5" />
+                              Tempel Gambar (Ctrl+V)
+                            </button>
+                          </div>
                         </div>
                       )}
                     </div>
@@ -653,12 +764,13 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
                         <input
                           type="text"
                           value={imageUrl}
+                          onPaste={handlePromptPaste}
                           onChange={(e) => {
                             setImageUrl(e.target.value);
                             setImageError('');
                           }}
                           placeholder="https://contoh.com/bangun-datar.png"
-                          className="w-full h-9 px-3 text-xs font-mono bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600"
+                          className="w-full h-9 px-3 text-xs font-mono bg-slate-50/80 focus:bg-white border border-slate-200 focus:border-indigo-500 rounded-xl focus:outline-none"
                         />
                       </div>
                       <div>
@@ -670,7 +782,7 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
                           value={imageCaption}
                           onChange={(e) => setImageCaption(e.target.value)}
                           placeholder="cth. Gambar 1. Denah taman sekolah"
-                          className="w-full h-9 px-3 text-xs bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600"
+                          className="w-full h-9 px-3 text-xs bg-slate-50/80 focus:bg-white border border-slate-200 focus:border-indigo-500 rounded-xl focus:outline-none"
                         />
                       </div>
                     </div>
@@ -679,7 +791,7 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
 
                 {/* Type-specific Answer Key Builder */}
                 {(type === 'multiple_choice' || type === 'mcma') && (
-                  <div className="space-y-3 pt-4 border-t border-slate-200">
+                  <div className="space-y-3 pt-4 border-t border-slate-100">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <span className="text-sm font-semibold text-slate-900">
                         {type === 'multiple_choice'
@@ -693,7 +805,7 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
                             onChange={(e) =>
                               setMcmaScoringMode(e.target.value as 'partial' | 'exact')
                             }
-                            className="h-8 px-2.5 text-xs bg-white border border-slate-300 rounded-lg"
+                            className="h-8 px-2.5 text-xs bg-violet-50/70 border border-violet-200 text-violet-800 rounded-lg"
                             title="Sistem penilaian MCMA"
                           >
                             <option value="partial">Skor MCMA: Parsial Proporsional</option>
@@ -711,7 +823,7 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
                               },
                             ])
                           }
-                          className="h-8 inline-flex items-center gap-1.5 px-3 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors whitespace-nowrap"
+                          className="h-8 inline-flex items-center gap-1.5 px-3 text-xs font-medium text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors whitespace-nowrap"
                         >
                           <Plus className="w-3.5 h-3.5" />
                           Tambah Opsi
@@ -743,7 +855,7 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
                                     );
                                   }
                                 }}
-                                className="w-4 h-4 text-blue-600 shrink-0"
+                                className="w-4 h-4 text-indigo-600 shrink-0"
                               />
                               <span className="w-6 text-xs font-mono uppercase text-slate-500 shrink-0">
                                 {String.fromCharCode(65 + idx)}
@@ -752,6 +864,7 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
                                 type="text"
                                 value={opt.text}
                                 dir={direction === 'rtl' ? 'rtl' : 'ltr'}
+                                onPaste={(e) => handleOptionPaste(opt.id, e)}
                                 onChange={(e) => {
                                   const val = e.target.value;
                                   setOptions((prev) =>
@@ -760,15 +873,15 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
                                     )
                                   );
                                 }}
-                                placeholder={`Teks opsi ${String.fromCharCode(65 + idx)} (mendukung $rumus$)`}
-                                className="flex-1 h-10 px-3 text-sm border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600"
+                                placeholder={`Teks opsi ${String.fromCharCode(65 + idx)} (mendukung $rumus$ / Ctrl+V gambar)`}
+                                className="flex-1 h-10 px-3 text-sm bg-slate-50/80 focus:bg-white border border-slate-200 focus:border-indigo-500 rounded-xl focus:outline-none"
                               />
                               <label
                                 title={`Tambah gambar pada opsi ${String.fromCharCode(65 + idx)}`}
                                 className={`h-9 px-2.5 inline-flex items-center gap-1 text-xs font-medium rounded-lg border cursor-pointer shrink-0 transition-colors ${
                                   validOptImg
-                                    ? 'bg-blue-50 border-blue-200 text-blue-700'
-                                    : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'
+                                    ? 'bg-sky-50 border-sky-200 text-sky-700'
+                                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
                                 }`}
                               >
                                 <ImagePlus className="w-3.5 h-3.5" />
@@ -795,7 +908,7 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
                                       prev.filter((o) => o.id !== opt.id)
                                     )
                                   }
-                                  className="w-8 h-8 inline-flex items-center justify-center text-slate-400 hover:text-red-600 rounded-lg shrink-0"
+                                  className="w-8 h-8 inline-flex items-center justify-center text-slate-400 hover:text-rose-600 rounded-lg shrink-0"
                                 >
                                   <Trash2 className="w-4 h-4" />
                                 </button>
@@ -817,7 +930,7 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
                                       )
                                     )
                                   }
-                                  className="text-[11px] font-semibold text-rose-600 hover:underline px-1.5"
+                                  className="text-[11px] font-medium text-rose-600 hover:underline px-1.5"
                                 >
                                   Hapus
                                 </button>
@@ -831,10 +944,10 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
                 )}
 
                 {type === 'true_false' && (
-                  <div className="space-y-3 pt-4 border-t border-slate-200">
+                  <div className="space-y-3 pt-4 border-t border-slate-100">
                     <div className="flex items-center justify-between">
                       <span className="text-sm font-semibold text-slate-900">
-                        Pilihan Ganda Kompleks: Daftar Pernyataan (Benar/Salah atau Sesuai/Tidak Sesuai)
+                        Pilihan Ganda Kompleks: Daftar Pernyataan (Benar/Salah)
                       </span>
                       <button
                         type="button"
@@ -844,7 +957,7 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
                             { id: `s${Date.now()}`, text: '', isTrue: true },
                           ])
                         }
-                        className="h-8 inline-flex items-center gap-1.5 px-3 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors whitespace-nowrap"
+                        className="h-8 inline-flex items-center gap-1.5 px-3 text-xs font-medium text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors whitespace-nowrap"
                       >
                         <Plus className="w-3.5 h-3.5" />
                         Tambah Pernyataan
@@ -853,7 +966,7 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
                     <div className="space-y-2">
                       {statements.map((stmt, idx) => (
                         <div key={stmt.id} className="flex items-center gap-3">
-                          <span className="w-6 text-xs font-mono text-slate-500">
+                          <span className="w-6 text-xs font-mono text-slate-400">
                             {idx + 1}.
                           </span>
                           <input
@@ -868,7 +981,7 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
                               );
                             }}
                             placeholder="Tulis pernyataan (mendukung $rumus$)"
-                            className="flex-1 h-10 px-3 text-sm border border-slate-300 rounded-xl"
+                            className="flex-1 h-10 px-3 text-sm bg-slate-50/80 focus:bg-white border border-slate-200 focus:border-indigo-500 rounded-xl focus:outline-none"
                           />
                           <select
                             value={stmt.isTrue ? 'true' : 'false'}
@@ -880,7 +993,11 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
                                 )
                               );
                             }}
-                            className="h-10 px-3 text-sm border border-slate-300 rounded-xl bg-white"
+                            className={`h-10 px-3 text-sm font-medium border rounded-xl ${
+                              stmt.isTrue
+                                ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                                : 'bg-rose-50 border-rose-200 text-rose-800'
+                            }`}
                           >
                             <option value="true">Benar</option>
                             <option value="false">Salah</option>
@@ -893,7 +1010,7 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
                                   prev.filter((s) => s.id !== stmt.id)
                                 )
                               }
-                              className="w-8 h-8 inline-flex items-center justify-center text-slate-400 hover:text-red-600 rounded-lg"
+                              className="w-8 h-8 inline-flex items-center justify-center text-slate-400 hover:text-rose-600 rounded-lg"
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
@@ -903,18 +1020,49 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
                     </div>
                   </div>
                 )}
+
+                {/* Topic / Competency & Pembahasan Soal */}
+                <div className="pt-4 border-t border-slate-100 grid grid-cols-1 lg:grid-cols-12 gap-4">
+                  <div className="lg:col-span-4">
+                    <label className="block text-xs font-medium text-slate-600 mb-1.5">
+                      Topik / Kompetensi (Opsional)
+                    </label>
+                    <input
+                      type="text"
+                      value={topic}
+                      onChange={(e) => setTopic(e.target.value)}
+                      placeholder="cth. Operasi Pecahan / Ide Pokok"
+                      className="w-full h-10 px-3 text-sm bg-slate-50/80 focus:bg-white border border-slate-200 focus:border-indigo-500 rounded-xl focus:outline-none"
+                    />
+                    <p className="text-[11px] text-slate-400 mt-1">
+                      Digunakan untuk rekap penguasaan per topik pada analisis hasil.
+                    </p>
+                  </div>
+                  <div className="lg:col-span-8">
+                    <label className="block text-xs font-medium text-slate-600 mb-1.5">
+                      Pembahasan / Penjelasan Jawaban (Opsional, mendukung $rumus$)
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={explanation}
+                      onChange={(e) => setExplanation(e.target.value)}
+                      placeholder="Tulis langkah penyelesaian atau alasan kunci jawaban agar dapat dipelajari siswa setelah ujian..."
+                      className="w-full px-3 py-2 text-sm bg-slate-50/80 focus:bg-white border border-slate-200 focus:border-indigo-500 rounded-xl focus:outline-none"
+                    />
+                  </div>
+                </div>
               </div>
             )}
           </div>
 
           {/* Modal Footer */}
-          <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-4 border-t border-slate-200 bg-white">
+          <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-4 border-t border-slate-200/80 bg-white">
             <button
               type="button"
               onClick={() =>
                 setModalTab((t) => (t === 'editor' ? 'preview' : 'editor'))
               }
-              className="h-9 px-3.5 inline-flex items-center gap-1.5 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-xl whitespace-nowrap"
+              className="h-9 px-3.5 inline-flex items-center gap-1.5 text-xs font-medium text-sky-700 bg-sky-50 border border-sky-200 hover:bg-sky-100/70 rounded-xl whitespace-nowrap transition-colors"
             >
               {modalTab === 'editor' ? (
                 <>
@@ -929,17 +1077,17 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
               )}
             </button>
 
-            <div className="flex items-center gap-2.5">
+            <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={onClose}
-                className="h-9 px-4 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-xl hover:bg-slate-50 transition-colors whitespace-nowrap"
+                className="h-9 px-4 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors whitespace-nowrap"
               >
                 Batal
               </button>
               <button
                 type="submit"
-                className="h-9 px-5 text-xs font-semibold text-white bg-blue-600 rounded-xl hover:bg-blue-700 transition-colors whitespace-nowrap"
+                className="h-9 px-5 text-xs font-semibold text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 transition-colors whitespace-nowrap shadow-xs"
               >
                 Simpan Soal
               </button>

@@ -26,7 +26,6 @@ import {
 import type { Question, QuestionBank } from '../types/cbt';
 import {
   QUESTION_TYPE_LABELS,
-  QUESTION_TYPE_SHORT,
   TKA_SD_OFFICIAL_TYPES,
 } from '../types/cbt';
 
@@ -188,37 +187,37 @@ export const BulkQuestionImportModal: React.FC<BulkQuestionImportModalProps> = (
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/55 p-4 overflow-y-auto">
-      <div className="w-full max-w-6xl bg-white border border-slate-200 rounded-xl shadow-2xl flex flex-col max-h-[92vh] overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-[2px] p-4 overflow-y-auto">
+      <div className="w-full max-w-6xl bg-white border border-slate-200 rounded-3xl shadow-xl flex flex-col max-h-[92vh] overflow-hidden">
         {/* Modal Header */}
-        <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between gap-4 bg-white">
+        <div className="px-6 py-4 border-b border-slate-200/80 flex items-center justify-between gap-4 bg-gradient-to-r from-emerald-50/60 via-sky-50/40 to-white">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0">
-              <FileSpreadsheet className="w-5 h-5" />
+            <div className="w-10 h-10 rounded-2xl bg-emerald-50 border border-emerald-200/80 text-emerald-600 flex items-center justify-center shrink-0">
+              <FileSpreadsheet className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-slate-900">
-                Import Massal Bank Soal (Excel .xlsx / .xls & CSV)
+              <h2 className="text-sm font-bold text-slate-900">
+                Import Massal Bank Soal (Excel &amp; CSV)
               </h2>
-              <p className="text-xs text-slate-500">
-                Validasi otomatis standar TKA SD: Pilihan Ganda (PG), Pilihan Ganda Kompleks (PGK B/S), dan MCMA.
+              <p className="text-xs text-slate-500 mt-0.5">
+                Validasi otomatis standar TKA SD: Pilihan Ganda (PG), PG Kompleks (B/S), dan MCMA.
               </p>
             </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="p-2 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-lg"
+            className="w-8 h-8 inline-flex items-center justify-center text-slate-500 hover:text-slate-900 hover:bg-white/80 rounded-lg transition-colors"
             aria-label="Tutup modal impor"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Scrollable Body */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-slate-50/70">
+        <div className="flex-1 overflow-y-auto p-6 space-y-5 bg-[#F7F8FC]">
           {submitError && (
-            <div className="px-4 py-3 bg-red-50 border border-red-200 rounded-lg text-xs font-medium text-red-800 flex items-center gap-2">
+            <div className="px-4 py-3 bg-rose-50 border border-rose-200 rounded-xl text-xs font-medium text-rose-800 flex items-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0" />
               <span>{submitError}</span>
             </div>
@@ -226,35 +225,35 @@ export const BulkQuestionImportModal: React.FC<BulkQuestionImportModalProps> = (
 
           {/* Step 1: Destination Bank + Template Download */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-            <div className="lg:col-span-7 bg-white border border-slate-200 rounded-xl p-5 space-y-4">
+            <div className="lg:col-span-7 bg-white border border-slate-200/80 rounded-2xl p-5 space-y-4 shadow-2xs">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h3 className="text-sm font-bold text-slate-900">
                   1. Pilih Bank Soal Tujuan
                 </h3>
-                <div className="inline-flex p-1 bg-slate-100 rounded-lg">
+                <div className="inline-flex p-1 bg-indigo-50/70 border border-indigo-100 rounded-xl">
                   <button
                     type="button"
                     onClick={() => setDestinationMode('existing')}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-md transition-colors whitespace-nowrap ${
+                    className={`inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap ${
                       destinationMode === 'existing'
-                        ? 'bg-white text-blue-700 shadow-xs'
+                        ? 'bg-white text-indigo-700 shadow-xs'
                         : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
                     <Layers className="w-3.5 h-3.5" />
-                    Bank Soal Tersedia
+                    Bank Tersedia
                   </button>
                   <button
                     type="button"
                     onClick={() => setDestinationMode('new')}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-md transition-colors whitespace-nowrap ${
+                    className={`inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap ${
                       destinationMode === 'new'
-                        ? 'bg-white text-blue-700 shadow-xs'
+                        ? 'bg-white text-indigo-700 shadow-xs'
                         : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
                     <FolderPlus className="w-3.5 h-3.5" />
-                    Buat Bank Soal Baru
+                    Buat Bank Baru
                   </button>
                 </div>
               </div>
@@ -268,7 +267,7 @@ export const BulkQuestionImportModal: React.FC<BulkQuestionImportModalProps> = (
                     <select
                       value={targetBankId}
                       onChange={(e) => setTargetBankId(e.target.value)}
-                      className="w-full px-3.5 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600"
+                      className="w-full h-10 px-3 text-sm bg-slate-50/80 focus:bg-white border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500"
                     >
                       {questionBanks.map((bank) => (
                         <option key={bank.id} value={bank.id}>
@@ -282,10 +281,10 @@ export const BulkQuestionImportModal: React.FC<BulkQuestionImportModalProps> = (
                       type="checkbox"
                       checked={replaceExisting}
                       onChange={(e) => setReplaceExisting(e.target.checked)}
-                      className="w-4 h-4 text-blue-600 rounded"
+                      className="w-4 h-4 text-indigo-600 rounded"
                     />
                     <span>
-                      Ganti seluruh soal lama di bank ini (kosongkan jika ingin menambahkan ke soal yang sudah ada)
+                      Ganti seluruh soal lama di bank ini (kosongkan jika ingin menambahkan)
                     </span>
                   </label>
                 </div>
@@ -302,7 +301,7 @@ export const BulkQuestionImportModal: React.FC<BulkQuestionImportModalProps> = (
                         setNewBankForm((p) => ({ ...p, code: e.target.value }))
                       }
                       placeholder="cth. TKA-MTK-02"
-                      className="w-full px-3 py-2 text-sm font-mono uppercase border border-slate-300 rounded-lg"
+                      className="w-full h-9 px-3 text-sm font-mono uppercase bg-slate-50/80 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500"
                     />
                   </div>
                   <div>
@@ -316,7 +315,7 @@ export const BulkQuestionImportModal: React.FC<BulkQuestionImportModalProps> = (
                         setNewBankForm((p) => ({ ...p, targetClass: e.target.value }))
                       }
                       placeholder="cth. KELAS 6 A"
-                      className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
+                      className="w-full h-9 px-3 text-sm bg-slate-50/80 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500"
                     />
                   </div>
                   <div>
@@ -330,7 +329,7 @@ export const BulkQuestionImportModal: React.FC<BulkQuestionImportModalProps> = (
                         setNewBankForm((p) => ({ ...p, name: e.target.value }))
                       }
                       placeholder="cth. Tryout Matematika Paket B"
-                      className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
+                      className="w-full h-9 px-3 text-sm bg-slate-50/80 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500"
                     />
                   </div>
                   <div>
@@ -344,7 +343,7 @@ export const BulkQuestionImportModal: React.FC<BulkQuestionImportModalProps> = (
                         setNewBankForm((p) => ({ ...p, subject: e.target.value }))
                       }
                       placeholder="cth. Matematika SD"
-                      className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
+                      className="w-full h-9 px-3 text-sm bg-slate-50/80 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500"
                     />
                   </div>
                   <label className="sm:col-span-2 inline-flex items-center gap-2 text-xs text-slate-700 cursor-pointer pt-1">
@@ -354,7 +353,7 @@ export const BulkQuestionImportModal: React.FC<BulkQuestionImportModalProps> = (
                       onChange={(e) =>
                         setNewBankForm((p) => ({ ...p, activateNow: e.target.checked }))
                       }
-                      className="w-4 h-4 text-blue-600 rounded"
+                      className="w-4 h-4 text-indigo-600 rounded"
                     />
                     <span>Langsung aktifkan bank soal ini untuk ujian siswa</span>
                   </label>
@@ -363,66 +362,66 @@ export const BulkQuestionImportModal: React.FC<BulkQuestionImportModalProps> = (
             </div>
 
             {/* Template & Format Guide Box */}
-            <div className="lg:col-span-5 bg-white border border-slate-200 rounded-xl p-5 flex flex-col justify-between space-y-4">
+            <div className="lg:col-span-5 bg-gradient-to-br from-emerald-50/70 to-sky-50/50 border border-emerald-200/70 rounded-2xl p-5 flex flex-col justify-between space-y-4">
               <div className="space-y-2">
                 <h3 className="text-sm font-bold text-slate-900">
                   Unduh Template Soal TKA SD
                 </h3>
                 <p className="text-xs text-slate-600 leading-relaxed">
-                  Gunakan template standar TKA SD agar kolom <span className="font-mono">PG</span> (Pilihan Ganda),{' '}
-                  <span className="font-mono">PGK</span> (Pilihan Ganda Kompleks Benar/Salah), dan{' '}
-                  <span className="font-mono">MCMA</span> (Multi-Jawaban) untuk Matematika &amp; Bahasa Indonesia langsung tervalidasi otomatis.
+                  Gunakan template standar TKA SD agar kolom <span className="font-mono font-semibold text-sky-700">PG</span>,{' '}
+                  <span className="font-mono font-semibold text-emerald-700">PGK</span> (Benar/Salah), dan{' '}
+                  <span className="font-mono font-semibold text-violet-700">MCMA</span> langsung tervalidasi otomatis.
                 </p>
               </div>
               <div className="grid grid-cols-2 gap-2.5">
                 <button
                   type="button"
                   onClick={() => downloadQuestionImportTemplate('xlsx')}
-                  className="inline-flex items-center justify-center gap-1.5 px-3 py-2.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg whitespace-nowrap"
+                  className="h-9 inline-flex items-center justify-center gap-1.5 px-3 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl whitespace-nowrap transition-colors shadow-2xs"
                 >
-                  <Download className="w-4 h-4 shrink-0" />
-                  Template Excel (.xlsx)
+                  <Download className="w-3.5 h-3.5 shrink-0" />
+                  Template Excel
                 </button>
                 <button
                   type="button"
                   onClick={() => downloadQuestionImportTemplate('csv')}
-                  className="inline-flex items-center justify-center gap-1.5 px-3 py-2.5 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg whitespace-nowrap"
+                  className="h-9 inline-flex items-center justify-center gap-1.5 px-3 text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-xl whitespace-nowrap transition-colors"
                 >
-                  <FileText className="w-4 h-4 shrink-0" />
-                  Template CSV (.csv)
+                  <FileText className="w-3.5 h-3.5 shrink-0" />
+                  Template CSV
                 </button>
               </div>
             </div>
           </div>
 
           {/* Step 2: File Upload or Paste Input */}
-          <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
+          <div className="bg-white border border-slate-200/80 rounded-2xl p-5 space-y-4 shadow-2xs">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h3 className="text-sm font-bold text-slate-900">
                 2. Unggah File Excel / CSV atau Tempel Data
               </h3>
-              <div className="inline-flex p-1 bg-slate-100 rounded-lg">
+              <div className="inline-flex p-1 bg-indigo-50/70 border border-indigo-100 rounded-xl">
                 <button
                   type="button"
                   onClick={() => setInputMode('file')}
-                  className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap ${
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap ${
                     inputMode === 'file'
-                      ? 'bg-white text-slate-900 shadow-xs'
+                      ? 'bg-white text-indigo-700 shadow-xs'
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  Unggah File (.xlsx / .xls / .csv)
+                  Unggah File (.xlsx / .csv)
                 </button>
                 <button
                   type="button"
                   onClick={() => setInputMode('paste')}
-                  className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap ${
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap ${
                     inputMode === 'paste'
-                      ? 'bg-white text-slate-900 shadow-xs'
+                      ? 'bg-white text-indigo-700 shadow-xs'
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  Tempel Teks / Salin dari Excel
+                  Tempel Teks / Excel
                 </button>
               </div>
             </div>
@@ -440,10 +439,10 @@ export const BulkQuestionImportModal: React.FC<BulkQuestionImportModalProps> = (
                   const file = e.dataTransfer.files?.[0];
                   if (file) handleFileSelected(file);
                 }}
-                className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors ${
+                className={`border border-dashed rounded-2xl p-8 text-center transition-colors ${
                   dragOver
-                    ? 'border-blue-600 bg-blue-50'
-                    : 'border-slate-300 bg-slate-50 hover:border-blue-400'
+                    ? 'border-indigo-500 bg-indigo-50/70'
+                    : 'border-indigo-200 bg-indigo-50/25 hover:border-indigo-300'
                 }`}
               >
                 <input
@@ -457,19 +456,21 @@ export const BulkQuestionImportModal: React.FC<BulkQuestionImportModalProps> = (
                   }}
                   className="hidden"
                 />
-                <Upload className="w-8 h-8 text-blue-600 mx-auto mb-2" />
+                <div className="w-11 h-11 rounded-2xl bg-white border border-indigo-100 text-indigo-600 flex items-center justify-center mx-auto mb-3 shadow-2xs">
+                  <Upload className="w-5 h-5" />
+                </div>
                 <p className="text-sm font-semibold text-slate-800">
                   {parsing
                     ? 'Membaca dan memvalidasi soal...'
                     : 'Tarik & lepas file Excel (.xlsx / .xls) atau CSV ke sini'}
                 </p>
                 <p className="text-xs text-slate-500 mt-1">
-                  Mendukung sheet Excel pertama dengan header kolom standar 3 jenis soal TKA (PG, PGK, MCMA).
+                  Mendukung sheet Excel pertama dengan header kolom standar TKA (PG, PGK, MCMA).
                 </p>
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  className="mt-4 inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg"
+                  className="mt-4 h-9 inline-flex items-center gap-2 px-4 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-colors shadow-2xs"
                 >
                   <FileSpreadsheet className="w-4 h-4" />
                   Pilih File dari Komputer
@@ -479,7 +480,7 @@ export const BulkQuestionImportModal: React.FC<BulkQuestionImportModalProps> = (
               <div className="space-y-3">
                 <p className="text-xs text-slate-600">
                   Tempel data tabel langsung dari Excel (dipisah Tab), CSV dengan header, atau format cepat per baris:{' '}
-                  <code className="font-mono text-slate-800">
+                  <code className="font-mono text-indigo-700">
                     JENIS | Mapel | Pertanyaan | Opsi A | Opsi B | Opsi C | Opsi D | Kunci
                   </code>
                 </p>
@@ -488,13 +489,13 @@ export const BulkQuestionImportModal: React.FC<BulkQuestionImportModalProps> = (
                   value={pasteText}
                   onChange={(e) => setPasteText(e.target.value)}
                   placeholder={`PG | Matematika SD | Hasil dari $12 \\times 8$ adalah... | 84 | 96 | 104 | 108 | B\nMCMA | Matematika SD | Pilih bilangan prima antara 10 dan 25: | 11 | 15 | 17 | 21 | A,C\nPGK | Matematika SD | Tentukan nilai kebenaran pernyataan berikut: | $5^2 = 25$ [Benar]; $3+4=8$ [Salah]`}
-                  className="w-full p-3 text-xs font-mono border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600"
+                  className="w-full p-3 text-xs font-mono bg-slate-50/80 focus:bg-white border border-slate-200 focus:border-indigo-500 rounded-xl focus:outline-none"
                 />
                 <div className="flex justify-end">
                   <button
                     type="button"
                     onClick={handleParsePaste}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg"
+                    className="h-9 inline-flex items-center gap-1.5 px-4 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl"
                   >
                     Validasi Data Tempel
                   </button>
@@ -505,8 +506,8 @@ export const BulkQuestionImportModal: React.FC<BulkQuestionImportModalProps> = (
 
           {/* Step 3: Live Validation Preview & Per-Type Summary */}
           {parseResult && (
-            <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-              <div className="px-5 py-4 border-b border-slate-200 space-y-3">
+            <div className="bg-white border border-slate-200/80 rounded-2xl overflow-hidden shadow-2xs">
+              <div className="px-5 py-4 border-b border-slate-200/80 space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <h3 className="text-sm font-bold text-slate-900">
@@ -522,7 +523,7 @@ export const BulkQuestionImportModal: React.FC<BulkQuestionImportModalProps> = (
                       <span
                         className={
                           parseResult.invalidCount > 0
-                            ? 'text-red-700 font-semibold'
+                            ? 'text-rose-700 font-semibold'
                             : 'text-slate-500'
                         }
                       >
@@ -537,19 +538,19 @@ export const BulkQuestionImportModal: React.FC<BulkQuestionImportModalProps> = (
                         type="checkbox"
                         checked={renderMathPreview}
                         onChange={(e) => setRenderMathPreview(e.target.checked)}
-                        className="w-3.5 h-3.5 text-blue-600 rounded"
+                        className="w-3.5 h-3.5 text-indigo-600 rounded"
                       />
                       Render Rumus &amp; Arab
                     </label>
-                    <div className="inline-flex p-1 bg-slate-100 rounded-lg">
+                    <div className="inline-flex p-1 bg-indigo-50/70 border border-indigo-100 rounded-xl">
                       {(['all', 'valid', 'invalid'] as const).map((f) => (
                         <button
                           key={f}
                           type="button"
                           onClick={() => setResultFilter(f)}
-                          className={`px-2.5 py-1 text-xs font-medium rounded-md whitespace-nowrap ${
+                          className={`px-2.5 py-1 text-xs font-medium rounded-lg whitespace-nowrap ${
                             resultFilter === f
-                              ? 'bg-white text-slate-900 shadow-xs'
+                              ? 'bg-white text-indigo-700 shadow-xs font-semibold'
                               : 'text-slate-600 hover:text-slate-900'
                           }`}
                         >
@@ -564,21 +565,29 @@ export const BulkQuestionImportModal: React.FC<BulkQuestionImportModalProps> = (
                   </div>
                 </div>
 
-                {/* Question Type Breakdown Strip (3 TKA Types) */}
+                {/* Question Type Breakdown Strip with Soft Pastel Tints */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
-                  {TKA_SD_OFFICIAL_TYPES.map((qt) => (
-                    <div
-                      key={qt}
-                      className="px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-lg flex items-center justify-between text-xs"
-                    >
-                      <span className="font-medium text-slate-700">
-                        {QUESTION_TYPE_LABELS[qt]}
-                      </span>
-                      <span className="font-mono tabular-nums font-bold text-blue-700">
-                        {parseResult.byType[qt]}
-                      </span>
-                    </div>
-                  ))}
+                  {TKA_SD_OFFICIAL_TYPES.map((qt) => {
+                    const cardTone =
+                      qt === 'multiple_choice'
+                        ? 'bg-sky-50/70 border-sky-200/70 text-sky-900'
+                        : qt === 'true_false'
+                          ? 'bg-emerald-50/70 border-emerald-200/70 text-emerald-900'
+                          : 'bg-violet-50/70 border-violet-200/70 text-violet-900';
+                    return (
+                      <div
+                        key={qt}
+                        className={`px-3.5 py-2.5 border rounded-xl flex items-center justify-between text-xs ${cardTone}`}
+                      >
+                        <span className="font-semibold">
+                          {QUESTION_TYPE_LABELS[qt]}
+                        </span>
+                        <span className="font-mono tabular-nums font-bold">
+                          {parseResult.byType[qt]}
+                        </span>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -589,7 +598,7 @@ export const BulkQuestionImportModal: React.FC<BulkQuestionImportModalProps> = (
               ) : (
                 <div className="overflow-x-auto max-h-[340px]">
                   <table className="w-full text-left border-collapse text-xs">
-                    <thead className="sticky top-0 bg-slate-50 border-b border-slate-200 z-10">
+                    <thead className="sticky top-0 bg-indigo-50/60 border-b border-slate-200 z-10">
                       <tr className="text-slate-600 font-semibold">
                         <th className="py-2.5 px-3 w-14">Baris</th>
                         <th className="py-2.5 px-3 w-36">Jenis Soal</th>
@@ -602,7 +611,7 @@ export const BulkQuestionImportModal: React.FC<BulkQuestionImportModalProps> = (
                       {filteredRows.map((row) => (
                         <tr
                           key={row.rowNumber}
-                          className={row.valid ? 'hover:bg-slate-50' : 'bg-red-50/60'}
+                          className={row.valid ? 'hover:bg-indigo-50/20' : 'bg-rose-50/50'}
                         >
                           <td className="py-3 px-3 font-mono tabular-nums text-slate-500 align-top">
                             #{row.rowNumber}
@@ -615,9 +624,7 @@ export const BulkQuestionImportModal: React.FC<BulkQuestionImportModalProps> = (
                             </p>
                             <p className="text-[11px] text-slate-500">{row.subject}</p>
                             <span
-                              className={`inline-block px-1.5 py-0.5 text-[10px] font-semibold rounded border ${
-                                getDifficultyTone(row.difficulty).bgClass
-                              } ${getDifficultyTone(row.difficulty).textClass}`}
+                              className={`text-[11px] font-semibold ${getDifficultyTone(row.difficulty).textClass}`}
                             >
                               {getDifficultyTone(row.difficulty).label}
                             </span>
@@ -634,7 +641,7 @@ export const BulkQuestionImportModal: React.FC<BulkQuestionImportModalProps> = (
                               {row.summaryText}
                             </p>
                           </td>
-                          <td className="py-3 px-3 text-right font-mono tabular-nums font-semibold text-slate-800 align-top">
+                          <td className="py-3 px-3 text-right font-mono tabular-nums font-medium text-slate-800 align-top">
                             {row.points}
                           </td>
                           <td className="py-3 px-3 align-top space-y-1.5">
@@ -653,7 +660,7 @@ export const BulkQuestionImportModal: React.FC<BulkQuestionImportModalProps> = (
                                         question: row.question as Question,
                                       })
                                     }
-                                    className="h-7 px-2.5 inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-md whitespace-nowrap"
+                                    className="h-7 px-2.5 inline-flex items-center gap-1 text-[11px] font-medium text-sky-700 bg-sky-50 hover:bg-sky-100 border border-sky-200 rounded-lg whitespace-nowrap"
                                   >
                                     <Eye className="w-3 h-3" />
                                     Pratinjau
@@ -665,7 +672,7 @@ export const BulkQuestionImportModal: React.FC<BulkQuestionImportModalProps> = (
                                 {row.errors.map((err, idx) => (
                                   <p
                                     key={idx}
-                                    className="inline-flex items-start gap-1 text-red-700 font-medium"
+                                    className="inline-flex items-start gap-1 text-rose-700 font-medium"
                                   >
                                     <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
                                     <span>{err}</span>
@@ -694,7 +701,7 @@ export const BulkQuestionImportModal: React.FC<BulkQuestionImportModalProps> = (
         </div>
 
         {/* Footer Action Bar */}
-        <div className="px-6 py-4 border-t border-slate-200 bg-white flex flex-wrap items-center justify-between gap-3">
+        <div className="px-6 py-4 border-t border-slate-200/80 bg-white flex flex-wrap items-center justify-between gap-3">
           <div className="text-xs text-slate-500">
             {parseResult
               ? parseResult.invalidCount > 0
@@ -702,11 +709,11 @@ export const BulkQuestionImportModal: React.FC<BulkQuestionImportModalProps> = (
                 : `${parseResult.validCount} butir soal valid siap masuk ke bank soal.`
               : 'Unggah file .xlsx/.csv atau tempel data terlebih dahulu untuk validasi.'}
           </div>
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg"
+              className="h-9 px-4 text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-xl"
             >
               Batal
             </button>
@@ -714,9 +721,9 @@ export const BulkQuestionImportModal: React.FC<BulkQuestionImportModalProps> = (
               type="button"
               disabled={submitting || validQuestions.length === 0}
               onClick={handleConfirmImport}
-              className="inline-flex items-center gap-2 px-5 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed rounded-lg"
+              className="h-9 inline-flex items-center gap-2 px-5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 disabled:cursor-not-allowed rounded-xl shadow-xs"
             >
-              <Upload className="w-4 h-4" />
+              <Upload className="w-3.5 h-3.5" />
               {submitting
                 ? 'Menyimpan...'
                 : `Import ${validQuestions.length} Soal Valid`}
@@ -726,37 +733,37 @@ export const BulkQuestionImportModal: React.FC<BulkQuestionImportModalProps> = (
       </div>
 
       {previewingQuestion && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/60 p-4">
-          <div className="w-full max-w-3xl bg-white border border-slate-200 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[88vh]">
-            <div className="px-5 py-3.5 border-b border-slate-200 flex items-center justify-between gap-3">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 backdrop-blur-[2px] p-4">
+          <div className="w-full max-w-3xl bg-white border border-slate-200 rounded-3xl shadow-xl overflow-hidden flex flex-col max-h-[88vh]">
+            <div className="px-5 py-3.5 border-b border-slate-200/80 flex items-center justify-between gap-3 bg-gradient-to-r from-sky-50/60 to-white">
               <div>
                 <h3 className="text-sm font-bold text-slate-900">
                   Pratinjau Soal Baris #{previewingQuestion.rowNumber} (Tampilan Siswa)
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Verifikasi tata letak, rumus, dan pilihan jawaban sebelum soal diimpor ke bank ujian.
+                  Verifikasi tata letak, rumus, dan pilihan jawaban sebelum soal diimpor.
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setPreviewingQuestion(null)}
-                className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-lg"
+                className="w-8 h-8 inline-flex items-center justify-center text-slate-500 hover:text-slate-900 hover:bg-white/80 rounded-lg"
               >
-                <X className="w-5 h-5" />
+                <X className="w-4 h-4" />
               </button>
             </div>
-            <div className="p-5 overflow-y-auto bg-slate-50">
+            <div className="p-5 overflow-y-auto bg-[#F7F8FC]">
               <QuestionStudentPreview
                 question={previewingQuestion.question}
                 questionNumber={previewingQuestion.rowNumber}
                 defaultShowAnswerKey
               />
             </div>
-            <div className="px-5 py-3 border-t border-slate-200 bg-white flex justify-end">
+            <div className="px-5 py-3 border-t border-slate-200/80 bg-white flex justify-end">
               <button
                 type="button"
                 onClick={() => setPreviewingQuestion(null)}
-                className="h-9 px-4 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl"
+                className="h-9 px-4 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl"
               >
                 Tutup Pratinjau
               </button>

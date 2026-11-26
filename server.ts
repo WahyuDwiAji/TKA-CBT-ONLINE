@@ -6,9 +6,17 @@ import { fileURLToPath } from 'url';
 import { WebSocketServer, WebSocket } from 'ws';
 import { createServer as createViteServer } from 'vite';
 import { DEFAULT_EXAM_CONFIG, DEFAULT_QUESTIONS } from './src/data/defaultQuestions.ts';
-import { gradeExam } from './src/lib/grading.ts';
+import { isFreePracticeActive } from './src/lib/freePractice.ts';
+import {
+  gradeExam,
+  normalizeQuestionPoints,
+  sanitizeQuestionForActiveStudent,
+  sanitizeStudentAnswer,
+} from './src/lib/grading.ts';
+import { applyStudentRandomization } from './src/lib/shuffle.ts';
 import type {
   Announcement,
+  AuditLogEntry,
   ClassRoom,
   ElearningMaterial,
   ExamConfig,
@@ -27,19 +35,24 @@ import type {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const PORT = 3000;
+const PORT =
+  process.env.NODE_ENV === 'production'
+    ? Number(process.env.PORT || process.env.DEFAULT_APP_PORT || 3000)
+    : Number(process.env.DEFAULT_APP_PORT || 3000);
 const DATA_DIR = path.resolve(__dirname, 'data');
 const UPLOADS_DIR = path.join(DATA_DIR, 'uploads');
 const STORE_PATH = path.join(DATA_DIR, 'cbt-store.json');
 
 let examConfig: ExamConfig = {
   ...DEFAULT_EXAM_CONFIG,
-  schoolName: 'SD Negeri Lentera Nusantara 01',
+  schoolName: 'SD Pedak',
   kkm: 75,
   shuffleQuestions: false,
   showResultToStudent: true,
   requireRegisteredNis: false,
   requireSessionCode: false,
+  freePracticeEnabled: false,
+  freePracticeScheduled: false,
   proctorPin: '123456',
   roomName: 'Ruang CBT 01 · Sesi Pagi',
   scheduleDate: new Date().toISOString().slice(0, 10),
@@ -106,6 +119,28 @@ let questions: Question[] = structuredClone(DEFAULT_QUESTIONS).map((q) => ({
 
 const sessions = new Map<string, StudentSession>();
 let recentViolations: ViolationLog[] = [];
+let auditLogs: AuditLogEntry[] = [];
+
+function recordAudit(entry: Omit<AuditLogEntry, 'id' | 'timestamp'>): void {
+  const created: AuditLogEntry = {
+    id: `aud-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    timestamp: new Date().toISOString(),
+    ...entry,
+  };
+  auditLogs = [created, ...auditLogs].slice(0, 300);
+}
+
+function gradeWithConfig(
+  qs: Question[],
+  answers: Record<string, StudentAnswerValue>,
+  manualOverrides?: Record<string, number>
+) {
+  return gradeExam(qs, answers, manualOverrides, {
+    negativeMarking: examConfig.negativeMarking,
+    negativePenaltyRatio: examConfig.negativePenaltyRatio,
+    kkm: examConfig.kkm,
+  });
+}
 
 let masterStudents: StudentMaster[] = [
   { id: 'ms-1', name: 'Siti Aminah', nis: '6001', kelas: 'KELAS 6 A', phone: '081234567801' },
@@ -227,6 +262,7 @@ function persistNow(): void {
       questions,
       sessions: Array.from(sessions.values()),
       recentViolations: recentViolations.slice(0, 100),
+      auditLogs: auditLogs.slice(0, 300),
       masterStudents,
       masterTeachers,
       classes,
@@ -291,6 +327,9 @@ function loadPersistedState(): void {
     if (Array.isArray(parsed.recentViolations)) {
       recentViolations = parsed.recentViolations;
     }
+    if (Array.isArray(parsed.auditLogs)) {
+      auditLogs = parsed.auditLogs;
+    }
     if (Array.isArray(parsed.masterStudents)) masterStudents = parsed.masterStudents;
     if (Array.isArray(parsed.masterTeachers)) masterTeachers = parsed.masterTeachers;
     if (Array.isArray(parsed.classes)) classes = parsed.classes;
@@ -331,6 +370,7 @@ function getSnapshot(): ServerSnapshot {
       b.lastActiveAt.localeCompare(a.lastActiveAt)
     ),
     recentViolations: recentViolations.slice(0, 50),
+    auditLogs: auditLogs.slice(0, 200),
     masterStudents,
     masterTeachers,
     classes,
@@ -370,26 +410,78 @@ function broadcastAll(payload: unknown): void {
   }
 }
 
+function getQuestionsForStudentSession(session?: StudentSession): Question[] {
+  const activeQs = getActiveQuestions();
+  const personalized = session
+    ? applyStudentRandomization(
+        activeQs,
+        session.id,
+        examConfig.shuffleQuestions,
+        examConfig.shuffleOptions
+      )
+    : activeQs;
+  const canSeeKeys =
+    session &&
+    (session.status === 'submitted' || session.status === 'force_stopped') &&
+    examConfig.showResultToStudent !== false;
+  return canSeeKeys
+    ? personalized
+    : personalized.map((q) => sanitizeQuestionForActiveStudent(q));
+}
+
+function regradeFinishedSessions(): void {
+  const activeQs = getActiveQuestions();
+  let changed = false;
+  for (const session of sessions.values()) {
+    if (session.status === 'submitted' || session.status === 'force_stopped') {
+      session.gradeSummary = gradeWithConfig(
+        activeQs,
+        session.answers,
+        session.manualEssayOverrides
+      );
+      changed = true;
+      sendToStudent(session.id, {
+        type: 'questions:updated',
+        questions: getQuestionsForStudentSession(session),
+      });
+      sendToStudent(session.id, { type: 'session:updated', session });
+    }
+  }
+  if (changed) {
+    broadcastToProctors({ type: 'state:snapshot', snapshot: getSnapshot() });
+  }
+}
+
 function broadcastQuestions(): void {
   broadcastToProctors({ type: 'questions:updated', questions });
-  const activeQs = getActiveQuestions();
   for (const meta of clients.values()) {
     if (meta.role === 'student') {
-      sendJson(meta.ws, { type: 'questions:updated', questions: activeQs });
+      const sess = meta.studentId ? sessions.get(meta.studentId) : undefined;
+      sendJson(meta.ws, {
+        type: 'questions:updated',
+        questions: getQuestionsForStudentSession(sess),
+      });
     }
   }
 }
 
 let timerTickCounter = 0;
+let lastFreePracticeActive = isFreePracticeActive(examConfig);
 
 setInterval(() => {
+  const currentFreePracticeActive = isFreePracticeActive(examConfig);
+  if (currentFreePracticeActive !== lastFreePracticeActive) {
+    lastFreePracticeActive = currentFreePracticeActive;
+    broadcastAll({ type: 'exam:updated', examConfig });
+  }
+
   if (examConfig.globalSuspended) return;
   const activeQs = getActiveQuestions();
   let hasActive = false;
   let completedNow = false;
 
   for (const session of sessions.values()) {
-    if (session.status === 'active' && session.connected) {
+    if (session.status === 'active') {
       hasActive = true;
       if (session.remainingSeconds > 0) {
         session.remainingSeconds -= 1;
@@ -397,13 +489,25 @@ setInterval(() => {
           completedNow = true;
           session.status = 'submitted';
           session.endedAt = new Date().toISOString();
-          session.gradeSummary = gradeExam(
+          session.gradeSummary = gradeWithConfig(
             activeQs,
             session.answers,
             session.manualEssayOverrides
           );
+          recordAudit({
+            actor: 'Sistem',
+            action: 'submit',
+            studentId: session.id,
+            studentName: session.name,
+            nis: session.nis,
+            detail: 'Waktu habis — dikumpulkan otomatis oleh server.',
+          });
+          sendToStudent(session.id, {
+            type: 'questions:updated',
+            questions: getQuestionsForStudentSession(session),
+          });
           sendToStudent(session.id, { type: 'session:updated', session });
-          broadcastToProctors({ type: 'session:updated', session });
+          broadcastToProctors({ type: 'state:snapshot', snapshot: getSnapshot() });
         }
       }
     }
@@ -475,7 +579,16 @@ async function startServer() {
     res.json({ ok: true, activeSessions: sessions.size, persisted: fs.existsSync(STORE_PATH) });
   });
 
+  app.get('/api/heartbeat', (_req, res) => {
+    res.json({
+      ok: true,
+      serverTime: new Date().toISOString(),
+      globalSuspended: Boolean(examConfig.globalSuspended),
+    });
+  });
+
   app.get('/api/public-config', (_req, res) => {
+    const freePracticeActive = isFreePracticeActive(examConfig);
     res.json({
       title: examConfig.title,
       subtitle: examConfig.subtitle,
@@ -484,7 +597,18 @@ async function startServer() {
       scheduleDate: examConfig.scheduleDate,
       startTime: examConfig.startTime,
       requireRegisteredNis: Boolean(examConfig.requireRegisteredNis),
-      requireSessionCode: Boolean(examConfig.requireSessionCode),
+      requireSessionCode: Boolean(examConfig.requireSessionCode) && !freePracticeActive,
+      configuredRequireSessionCode: Boolean(examConfig.requireSessionCode),
+      freePracticeActive,
+      freePracticeEnabled: Boolean(examConfig.freePracticeEnabled),
+      freePracticeScheduled: Boolean(examConfig.freePracticeScheduled),
+      freePracticeStartAt: examConfig.freePracticeStartAt,
+      freePracticeEndAt: examConfig.freePracticeEndAt,
+      shuffleQuestions: Boolean(examConfig.shuffleQuestions),
+      shuffleOptions: Boolean(examConfig.shuffleOptions),
+      preventBackNavigation: Boolean(examConfig.preventBackNavigation),
+      watermarkEnabled: examConfig.watermarkEnabled !== false,
+      maxViolationsBeforeLock: examConfig.maxViolationsBeforeLock || 3,
     });
   });
 
@@ -492,13 +616,14 @@ async function startServer() {
     const rawName = String(req.body?.name || '').trim();
     const rawNis = String(req.body?.nis || '').trim();
     const rawSessionCode = String(req.body?.sessionCode || '').trim();
+    const freePracticeActive = isFreePracticeActive(examConfig);
 
     if (!rawName || !rawNis) {
       res.status(400).json({ error: 'Nama lengkap dan NIS wajib diisi.' });
       return;
     }
 
-    if (examConfig.requireSessionCode) {
+    if (examConfig.requireSessionCode && !freePracticeActive) {
       const expectedCode = (examConfig.sessionCode || '').trim().toUpperCase();
       if (!expectedCode || rawSessionCode.toUpperCase() !== expectedCode) {
         res.status(403).json({
@@ -542,6 +667,7 @@ async function startServer() {
       studentName: finalName,
       nis: rawNis,
       resumed: false,
+      freePracticeActive,
     });
   });
 
@@ -622,6 +748,7 @@ async function startServer() {
     questionBanks = questionBanks.map((b) => ({ ...b, isActive: b.id === id }));
     broadcastToProctors({ type: 'banks:updated', questionBanks });
     broadcastQuestions();
+    regradeFinishedSessions();
     schedulePersist();
     res.json({ ok: true });
   });
@@ -658,11 +785,13 @@ async function startServer() {
     const activeBank = questionBanks.find((b) => b.isActive);
     const enriched: Question = {
       ...newQ,
+      points: normalizeQuestionPoints(newQ.points) || 1,
       difficulty: normalizeDifficulty(newQ.difficulty),
       bankId: newQ.bankId || activeBank?.id || 'bank-tka-sd',
     };
     questions = [...questions, enriched];
     broadcastQuestions();
+    regradeFinishedSessions();
     schedulePersist();
     res.status(201).json(enriched);
   });
@@ -781,12 +910,12 @@ async function startServer() {
       res.status(400).json({ error: 'Bobot tidak valid.' });
       return;
     }
-    questions = questions.map((q) =>
-      typeof weights[q.id] === 'number' && weights[q.id] > 0
-        ? { ...q, points: weights[q.id] }
-        : q
-    );
+    questions = questions.map((q) => {
+      const normalized = normalizeQuestionPoints(weights[q.id]);
+      return normalized > 0 ? { ...q, points: normalized } : q;
+    });
     broadcastQuestions();
+    regradeFinishedSessions();
     schedulePersist();
     res.json({ ok: true });
   });
@@ -799,14 +928,20 @@ async function startServer() {
       res.status(404).json({ error: 'Soal tidak ditemukan.' });
       return;
     }
+    const nextPoints =
+      updated.points !== undefined
+        ? normalizeQuestionPoints(updated.points) || questions[idx].points
+        : questions[idx].points;
     const merged = {
       ...questions[idx],
       ...updated,
       id,
+      points: nextPoints,
       difficulty: normalizeDifficulty(updated.difficulty ?? questions[idx].difficulty),
     } as Question;
     questions[idx] = merged;
     broadcastQuestions();
+    regradeFinishedSessions();
     schedulePersist();
     res.json(questions[idx]);
   });
@@ -814,6 +949,7 @@ async function startServer() {
   app.delete('/api/questions/:id', (req, res) => {
     questions = questions.filter((q) => q.id !== req.params.id);
     broadcastQuestions();
+    regradeFinishedSessions();
     schedulePersist();
     res.json({ ok: true });
   });
@@ -1066,7 +1202,18 @@ async function startServer() {
       createdAt: new Date().toISOString(),
     };
     announcements = [created, ...announcements];
+    recordAudit({
+      actor: created.author,
+      action: 'announcement',
+      detail: `Pengumuman disiarkan: "${created.title}"`,
+    });
     broadcastAll({ type: 'announcements:updated', announcements });
+    for (const meta of clients.values()) {
+      if (meta.role === 'student') {
+        sendJson(meta.ws, { type: 'announcement:live', announcement: created });
+      }
+    }
+    broadcastToProctors({ type: 'state:snapshot', snapshot: getSnapshot() });
     schedulePersist();
     res.status(201).json(created);
   });
@@ -1079,14 +1226,36 @@ async function startServer() {
   });
 
   app.patch('/api/config', (req, res) => {
+    const prevKkm = examConfig.kkm;
+    const prevNeg = examConfig.negativeMarking;
+    const prevNegRatio = examConfig.negativePenaltyRatio;
+    const prevShowResult = examConfig.showResultToStudent;
     examConfig = { ...examConfig, ...req.body };
+    lastFreePracticeActive = isFreePracticeActive(examConfig);
     broadcastAll({ type: 'exam:updated', examConfig });
+    if (
+      prevKkm !== examConfig.kkm ||
+      prevNeg !== examConfig.negativeMarking ||
+      prevNegRatio !== examConfig.negativePenaltyRatio ||
+      prevShowResult !== examConfig.showResultToStudent
+    ) {
+      regradeFinishedSessions();
+    }
     schedulePersist();
     res.json(examConfig);
   });
 
   const server = http.createServer(app);
-  const wss = new WebSocketServer({ server, path: '/ws' });
+  const wss = new WebSocketServer({ noServer: true });
+
+  server.on('upgrade', (req, socket, head) => {
+    const reqPath = req.url?.split('?')[0];
+    if (reqPath === '/ws') {
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        wss.emit('connection', ws, req);
+      });
+    }
+  });
 
   wss.on('connection', (ws) => {
     clients.set(ws, { ws, role: 'unknown' });
@@ -1142,20 +1311,38 @@ async function startServer() {
               : undefined,
           };
           sessions.set(sessionId, session);
+          recordAudit({
+            actor: name,
+            action: 'join',
+            studentId: session.id,
+            studentName: session.name,
+            nis: session.nis,
+            detail: 'Memulai sesi ujian baru.',
+          });
         } else {
           session.name = name || session.name;
           session.nis = nis || session.nis;
           session.connected = true;
           session.lastActiveAt = new Date().toISOString();
+          recordAudit({
+            actor: session.name,
+            action: 'resume',
+            studentId: session.id,
+            studentName: session.name,
+            nis: session.nis,
+            detail: `Memulihkan sesi (sisa ${Math.floor(session.remainingSeconds / 60)}m).`,
+          });
         }
+
+        const personalizedQuestions = getQuestionsForStudentSession(session);
 
         sendJson(ws, {
           type: 'student:init',
           examConfig,
-          questions: getActiveQuestions(),
+          questions: personalizedQuestions,
           session,
         });
-        broadcastToProctors({ type: 'session:updated', session });
+        broadcastToProctors({ type: 'state:snapshot', snapshot: getSnapshot() });
         schedulePersist();
         return;
       }
@@ -1167,8 +1354,12 @@ async function startServer() {
         if (session.status !== 'active' || examConfig.globalSuspended) return;
 
         const questionId = String(msg.questionId || '');
-        const value = msg.value as StudentAnswerValue;
-        session.answers[questionId] = value;
+        const questionObj = questions.find((q) => q.id === questionId);
+        if (!questionObj) return;
+        const sanitized = sanitizeStudentAnswer(questionObj, msg.value);
+        if (sanitized === undefined) return;
+
+        session.answers[questionId] = sanitized;
         session.lastActiveAt = new Date().toISOString();
 
         broadcastToProctors({ type: 'session:updated', session });
@@ -1220,18 +1411,72 @@ async function startServer() {
         session.violations = [violation, ...session.violations];
         session.lastActiveAt = violation.timestamp;
 
+        const threshold = Math.max(1, Number(examConfig.maxViolationsBeforeLock) || 1);
+        const totalViolations = session.violations.length;
+        let warningOnly = false;
+
         if (examConfig.antiCheatEnabled) {
-          session.status = 'violation_locked';
+          if (totalViolations < threshold) {
+            warningOnly = true;
+            recordAudit({
+              actor: session.name,
+              action: 'violation_warning',
+              studentId: session.id,
+              studentName: session.name,
+              nis: session.nis,
+              detail: `Peringatan pelanggaran (${totalViolations}/${threshold}): ${reason}`,
+            });
+          } else if (examConfig.violationPolicy === 'force_submit') {
+            session.status = 'force_stopped';
+            session.endedAt = violation.timestamp;
+            session.suspendReason = `Ujian dihentikan otomatis setelah ${totalViolations} pelanggaran (${reason}).`;
+            session.gradeSummary = gradeWithConfig(
+              getActiveQuestions(),
+              session.answers,
+              session.manualEssayOverrides
+            );
+            recordAudit({
+              actor: 'Sistem Anti-Curang',
+              action: 'force_stop',
+              studentId: session.id,
+              studentName: session.name,
+              nis: session.nis,
+              detail: `Kumpul paksa otomatis setelah mencapai batas ${threshold} pelanggaran: ${reason}`,
+            });
+          } else {
+            session.status = 'violation_locked';
+            recordAudit({
+              actor: 'Sistem Anti-Curang',
+              action: 'violation_lock',
+              studentId: session.id,
+              studentName: session.name,
+              nis: session.nis,
+              detail: `Layar dikunci (${totalViolations}/${threshold}): ${reason}`,
+            });
+          }
         }
 
         recentViolations = [violation, ...recentViolations].slice(0, 100);
 
+        sendToStudent(session.id, {
+          type: 'questions:updated',
+          questions: getQuestionsForStudentSession(session),
+        });
         sendToStudent(session.id, { type: 'session:updated', session });
+        if (warningOnly) {
+          sendToStudent(session.id, {
+            type: 'violation:warning',
+            count: totalViolations,
+            max: threshold,
+            reason,
+          });
+        }
         broadcastToProctors({
           type: 'violation:alert',
           violation,
           session,
         });
+        broadcastToProctors({ type: 'state:snapshot', snapshot: getSnapshot() });
         schedulePersist();
         return;
       }
@@ -1241,6 +1486,10 @@ async function startServer() {
         const session = sessions.get(studentId);
         if (!session) return;
         if (session.status === 'force_stopped' || session.status === 'submitted') {
+          sendToStudent(session.id, {
+            type: 'questions:updated',
+            questions: getQuestionsForStudentSession(session),
+          });
           sendToStudent(session.id, { type: 'session:updated', session });
           return;
         }
@@ -1248,14 +1497,26 @@ async function startServer() {
         session.status = 'submitted';
         session.endedAt = new Date().toISOString();
         session.lastActiveAt = session.endedAt;
-        session.gradeSummary = gradeExam(
+        session.gradeSummary = gradeWithConfig(
           getActiveQuestions(),
           session.answers,
           session.manualEssayOverrides
         );
+        recordAudit({
+          actor: session.name,
+          action: 'submit',
+          studentId: session.id,
+          studentName: session.name,
+          nis: session.nis,
+          detail: `Mengumpulkan ujian (Skor: ${session.gradeSummary.totalScore}).`,
+        });
 
+        sendToStudent(session.id, {
+          type: 'questions:updated',
+          questions: getQuestionsForStudentSession(session),
+        });
         sendToStudent(session.id, { type: 'session:updated', session });
-        broadcastToProctors({ type: 'session:updated', session });
+        broadcastToProctors({ type: 'state:snapshot', snapshot: getSnapshot() });
         persistNow();
         return;
       }
@@ -1275,13 +1536,23 @@ async function startServer() {
           msg.reason || 'Ujian ditangguhkan sementara oleh proktor.'
         );
         session.lastActiveAt = new Date().toISOString();
+        recordAudit({
+          actor: String(msg.actor || 'Proktor'),
+          action: 'suspend',
+          studentId: session.id,
+          studentName: session.name,
+          nis: session.nis,
+          detail: session.suspendReason,
+        });
         sendToStudent(session.id, { type: 'session:updated', session });
-        broadcastToProctors({ type: 'session:updated', session });
+        broadcastToProctors({ type: 'state:snapshot', snapshot: getSnapshot() });
         return;
       }
 
       if (type === 'proctor:resume' || type === 'proctor:unlock_violation') {
         const targetId = String(msg.studentId || '');
+        const unlockReason = String(msg.reason || '').trim();
+        const actor = String(msg.actor || 'Proktor').trim();
         const session = sessions.get(targetId);
         if (
           !session ||
@@ -1300,6 +1571,25 @@ async function startServer() {
           recentViolations = recentViolations.map((v) =>
             v.studentId === targetId ? { ...v, resolved: true } : v
           );
+          recordAudit({
+            actor,
+            action: 'unlock',
+            studentId: session.id,
+            studentName: session.name,
+            nis: session.nis,
+            detail: unlockReason
+              ? `Buka kunci pelanggaran — Alasan: ${unlockReason}`
+              : 'Buka kunci pelanggaran oleh proktor.',
+          });
+        } else {
+          recordAudit({
+            actor,
+            action: 'resume',
+            studentId: session.id,
+            studentName: session.name,
+            nis: session.nis,
+            detail: unlockReason || 'Sesi ujian dilanjutkan kembali oleh proktor.',
+          });
         }
         session.lastActiveAt = new Date().toISOString();
         sendToStudent(session.id, { type: 'session:updated', session });
@@ -1307,6 +1597,76 @@ async function startServer() {
           type: 'state:snapshot',
           snapshot: getSnapshot(),
         });
+        schedulePersist();
+        return;
+      }
+
+      if (type === 'proctor:add_time') {
+        const targetId = String(msg.studentId || '');
+        const minutes = Math.max(1, Math.min(120, Number(msg.minutes) || 5));
+        const reason = String(msg.reason || '').trim() || `Penambahan waktu +${minutes} menit`;
+        const actor = String(msg.actor || 'Proktor').trim();
+        const session = sessions.get(targetId);
+        if (
+          !session ||
+          session.status === 'submitted' ||
+          session.status === 'force_stopped'
+        ) {
+          return;
+        }
+        session.remainingSeconds += minutes * 60;
+        session.lastActiveAt = new Date().toISOString();
+        recordAudit({
+          actor,
+          action: 'add_time',
+          studentId: session.id,
+          studentName: session.name,
+          nis: session.nis,
+          detail: `+${minutes} menit (${reason})`,
+        });
+        sendToStudent(session.id, { type: 'session:updated', session });
+        sendToStudent(session.id, {
+          type: 'proctor:time_added',
+          minutes,
+          reason,
+        });
+        broadcastToProctors({
+          type: 'state:snapshot',
+          snapshot: getSnapshot(),
+        });
+        schedulePersist();
+        return;
+      }
+
+      if (type === 'proctor:broadcast_announcement') {
+        const title = String(msg.title || 'Pengumuman Pengawas').trim();
+        const content = String(msg.content || '').trim();
+        const author = String(msg.author || 'Proktor Ruang').trim();
+        if (!content) return;
+        const created: Announcement = {
+          id: `ann-${Date.now()}`,
+          title,
+          content,
+          author,
+          createdAt: new Date().toISOString(),
+        };
+        announcements = [created, ...announcements];
+        recordAudit({
+          actor: author,
+          action: 'announcement',
+          detail: `Siaran langsung ke siswa: "${title}" — ${content}`,
+        });
+        broadcastAll({ type: 'announcements:updated', announcements });
+        for (const m of clients.values()) {
+          if (m.role === 'student') {
+            sendJson(m.ws, { type: 'announcement:live', announcement: created });
+          }
+        }
+        broadcastToProctors({
+          type: 'state:snapshot',
+          snapshot: getSnapshot(),
+        });
+        schedulePersist();
         return;
       }
 
@@ -1321,14 +1681,26 @@ async function startServer() {
         session.suspendReason = String(
           msg.reason || 'Ujian dihentikan secara paksa oleh proktor.'
         );
-        session.gradeSummary = gradeExam(
+        session.gradeSummary = gradeWithConfig(
           getActiveQuestions(),
           session.answers,
           session.manualEssayOverrides
         );
+        recordAudit({
+          actor: String(msg.actor || 'Proktor'),
+          action: 'force_stop',
+          studentId: session.id,
+          studentName: session.name,
+          nis: session.nis,
+          detail: session.suspendReason,
+        });
 
+        sendToStudent(session.id, {
+          type: 'questions:updated',
+          questions: getQuestionsForStudentSession(session),
+        });
         sendToStudent(session.id, { type: 'session:updated', session });
-        broadcastToProctors({ type: 'session:updated', session });
+        broadcastToProctors({ type: 'state:snapshot', snapshot: getSnapshot() });
         persistNow();
         return;
       }
@@ -1343,6 +1715,11 @@ async function startServer() {
             sendToStudent(session.id, { type: 'session:updated', session });
           }
         }
+        recordAudit({
+          actor: 'Proktor',
+          action: 'suspend',
+          detail: 'Menangguhkan seluruh ruang ujian secara serentak.',
+        });
         broadcastAll({ type: 'exam:updated', examConfig });
         broadcastToProctors({
           type: 'state:snapshot',
@@ -1361,6 +1738,11 @@ async function startServer() {
             sendToStudent(session.id, { type: 'session:updated', session });
           }
         }
+        recordAudit({
+          actor: 'Proktor',
+          action: 'resume',
+          detail: 'Melanjutkan seluruh ruang ujian secara serentak.',
+        });
         broadcastAll({ type: 'exam:updated', examConfig });
         broadcastToProctors({
           type: 'state:snapshot',
@@ -1373,32 +1755,76 @@ async function startServer() {
       if (type === 'proctor:adjust_essay_score') {
         const targetId = String(msg.studentId || '');
         const questionId = String(msg.questionId || '');
-        const score = Number(msg.score);
         const session = sessions.get(targetId);
-        if (!session || Number.isNaN(score)) return;
-        session.manualEssayOverrides = {
-          ...(session.manualEssayOverrides || {}),
-          [questionId]: score,
-        };
+        const questionObj = questions.find((q) => q.id === questionId);
+        if (!session || !questionObj) return;
+
+        const maxPts = normalizeQuestionPoints(questionObj.points);
+        const nextOverrides = { ...(session.manualEssayOverrides || {}) };
+        let auditDetail = '';
+
+        if (msg.resetOverride === true || msg.score === null) {
+          delete nextOverrides[questionId];
+          auditDetail = `Mengembalikan soal ${questionId} ke penilaian otomatis.`;
+        } else {
+          const rawScore = Number(msg.score);
+          if (!Number.isFinite(rawScore)) return;
+          const clamped = Number(Math.max(0, Math.min(maxPts, rawScore)).toFixed(2));
+          nextOverrides[questionId] = clamped;
+          auditDetail = `Menyesuaikan skor soal (${clamped}/${maxPts} poin).`;
+        }
+
+        session.manualEssayOverrides = nextOverrides;
         if (session.status === 'submitted' || session.status === 'force_stopped') {
-          session.gradeSummary = gradeExam(
+          session.gradeSummary = gradeWithConfig(
             getActiveQuestions(),
             session.answers,
             session.manualEssayOverrides
           );
         }
+        recordAudit({
+          actor: String(msg.actor || 'Proktor'),
+          action: 'grade_override',
+          studentId: session.id,
+          studentName: session.name,
+          nis: session.nis,
+          detail: auditDetail,
+        });
         sendToStudent(session.id, { type: 'session:updated', session });
-        broadcastToProctors({ type: 'session:updated', session });
-        schedulePersist();
+        broadcastToProctors({ type: 'state:snapshot', snapshot: getSnapshot() });
+        persistNow();
+        return;
+      }
+
+      if (type === 'proctor:regrade_all') {
+        regradeFinishedSessions();
+        recordAudit({
+          actor: String(msg.actor || 'Proktor'),
+          action: 'regrade',
+          detail: 'Menghitung ulang seluruh nilai peserta sesuai kunci, bobot, dan aturan aktif.',
+        });
+        broadcastToProctors({ type: 'state:snapshot', snapshot: getSnapshot() });
+        persistNow();
         return;
       }
 
       if (type === 'proctor:reset_session') {
         const targetId = String(msg.studentId || '');
+        const existing = sessions.get(targetId);
         sessions.delete(targetId);
         recentViolations = recentViolations.filter(
           (v) => v.studentId !== targetId
         );
+        if (existing) {
+          recordAudit({
+            actor: String(msg.actor || 'Proktor'),
+            action: 'reset',
+            studentId: existing.id,
+            studentName: existing.name,
+            nis: existing.nis,
+            detail: 'Mereset sesi untuk izin pengerjaan ulang (remedial).',
+          });
+        }
         sendToStudent(targetId, { type: 'student:reset' });
         broadcastToProctors({
           type: 'state:snapshot',
@@ -1439,11 +1865,23 @@ async function startServer() {
   });
 
   if (process.env.NODE_ENV !== 'production') {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
+    const vitePromise = createViteServer({
+      server: {
+        middlewareMode: true,
+        hmr:
+          process.env.DISABLE_HMR === 'true'
+            ? false
+            : { server, path: '/vite-hmr' },
+      },
       appType: 'spa',
     });
-    app.use(vite.middlewares);
+    app.use((req, res, next) => {
+      vitePromise
+        .then((vite) => {
+          vite.middlewares(req, res, next);
+        })
+        .catch(next);
+    });
   } else {
     const distPath = path.resolve(__dirname, 'dist');
     app.use(express.static(distPath));
@@ -1466,4 +1904,7 @@ async function startServer() {
   });
 }
 
-startServer();
+startServer().catch((err) => {
+  console.error('Failed to start Lentera CBT server:', err);
+  process.exit(1);
+});

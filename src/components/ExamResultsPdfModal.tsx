@@ -103,13 +103,13 @@ export const ExamResultsPdfModal: React.FC<ExamResultsPdfModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-2 md:p-4 print-modal-backdrop">
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-6xl max-h-[94vh] flex flex-col overflow-hidden print-modal-shell">
+    <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-[2px] flex items-center justify-center p-2 md:p-4 print-modal-backdrop">
+      <div className="bg-white rounded-3xl border border-slate-200 shadow-xl w-full max-w-6xl max-h-[94vh] flex flex-col overflow-hidden print-modal-shell">
         {/* Modal Header */}
-        <div className="px-5 py-3.5 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 bg-white no-print">
+        <div className="px-5 py-3.5 border-b border-slate-200/80 flex flex-wrap items-center justify-between gap-3 bg-gradient-to-r from-indigo-50/60 via-sky-50/40 to-white no-print">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-lg bg-blue-50 text-blue-700 flex items-center justify-center">
-              <FileText className="w-5 h-5" />
+            <div className="w-9 h-9 rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center shrink-0">
+              <FileText className="w-4 h-4" />
             </div>
             <div>
               <h2 className="text-sm font-bold text-slate-900">
@@ -123,7 +123,7 @@ export const ExamResultsPdfModal: React.FC<ExamResultsPdfModalProps> = ({
 
           <div className="flex flex-wrap items-center gap-2">
             {downloadedNotice && (
-              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-emerald-50 text-emerald-700 text-xs font-medium border border-emerald-200">
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 text-xs font-medium border border-emerald-200">
                 <CheckCircle2 className="w-3.5 h-3.5" />
                 PDF berhasil diunduh
               </span>
@@ -131,23 +131,23 @@ export const ExamResultsPdfModal: React.FC<ExamResultsPdfModalProps> = ({
             <button
               type="button"
               onClick={() => window.print()}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg"
+              className="h-9 inline-flex items-center gap-1.5 px-3.5 text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-xl whitespace-nowrap"
             >
-              <Printer className="w-4 h-4" />
-              Cetak via Browser
+              <Printer className="w-3.5 h-3.5" />
+              Cetak Browser
             </button>
             <button
               type="button"
               onClick={handleDownloadPdf}
-              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-xs"
+              className="h-9 inline-flex items-center gap-1.5 px-4 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl whitespace-nowrap shadow-xs"
             >
-              <Download className="w-4 h-4" />
+              <Download className="w-3.5 h-3.5" />
               Unduh PDF (.pdf)
             </button>
             <button
               type="button"
               onClick={onClose}
-              className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg"
+              className="w-8 h-8 inline-flex items-center justify-center text-slate-500 hover:text-slate-900 hover:bg-white/80 rounded-lg"
               aria-label="Tutup"
             >
               <X className="w-4 h-4" />
@@ -158,15 +158,15 @@ export const ExamResultsPdfModal: React.FC<ExamResultsPdfModalProps> = ({
         {/* Body: Settings Sidebar + Live A4 Paper Preview */}
         <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 overflow-hidden">
           {/* Left Configuration Column */}
-          <aside className="lg:col-span-3 border-b lg:border-b-0 lg:border-r border-slate-200 p-4 space-y-4 overflow-y-auto bg-slate-50/70 no-print">
+          <aside className="lg:col-span-3 border-b lg:border-b-0 lg:border-r border-slate-200/80 p-4 space-y-4 overflow-y-auto bg-[#F7F8FC] no-print">
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+              <label className="block text-xs font-medium text-slate-600 mb-1.5">
                 Cakupan Peserta
               </label>
               <select
                 value={scope}
                 onChange={(e) => setScope(e.target.value as PdfScope)}
-                className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full h-9 px-3 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500"
               >
                 <option value="sessions_only">Peserta Aktif / Sudah Ujian ({sessions.length})</option>
                 <option value="finished_only">Hanya yang Sudah Selesai</option>
@@ -175,13 +175,13 @@ export const ExamResultsPdfModal: React.FC<ExamResultsPdfModalProps> = ({
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+              <label className="block text-xs font-medium text-slate-600 mb-1.5">
                 Filter Kelas
               </label>
               <select
                 value={classFilter}
                 onChange={(e) => setClassFilter(e.target.value)}
-                className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full h-9 px-3 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500"
               >
                 <option value="all">Semua Kelas</option>
                 {classOptions.map((cls) => (
@@ -193,17 +193,17 @@ export const ExamResultsPdfModal: React.FC<ExamResultsPdfModalProps> = ({
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+              <label className="block text-xs font-medium text-slate-600 mb-1.5">
                 Orientasi Kertas A4
               </label>
-              <div className="grid grid-cols-2 gap-1.5">
+              <div className="grid grid-cols-2 p-1 bg-indigo-50/80 border border-indigo-100 rounded-xl">
                 <button
                   type="button"
                   onClick={() => setOrientation('landscape')}
-                  className={`py-2 px-2.5 text-xs font-semibold rounded-lg border transition-colors ${
+                  className={`py-1.5 px-2.5 text-xs font-semibold rounded-lg transition-colors ${
                     orientation === 'landscape'
-                      ? 'bg-blue-600 text-white border-blue-600'
-                      : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                      ? 'bg-white text-indigo-700 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
                   Landscape
@@ -211,10 +211,10 @@ export const ExamResultsPdfModal: React.FC<ExamResultsPdfModalProps> = ({
                 <button
                   type="button"
                   onClick={() => setOrientation('portrait')}
-                  className={`py-2 px-2.5 text-xs font-semibold rounded-lg border transition-colors ${
+                  className={`py-1.5 px-2.5 text-xs font-semibold rounded-lg transition-colors ${
                     orientation === 'portrait'
-                      ? 'bg-blue-600 text-white border-blue-600'
-                      : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                      ? 'bg-white text-indigo-700 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
                   Portrait
@@ -222,14 +222,14 @@ export const ExamResultsPdfModal: React.FC<ExamResultsPdfModalProps> = ({
               </div>
             </div>
 
-            <div className="space-y-2 pt-1 border-t border-slate-200">
+            <div className="space-y-2 pt-2 border-t border-slate-200/80">
               <p className="text-xs font-semibold text-slate-700">Komponen Laporan</p>
               <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={includeTypeBreakdown}
                   onChange={(e) => setIncludeTypeBreakdown(e.target.checked)}
-                  className="mt-0.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                  className="mt-0.5 rounded border-slate-300 text-indigo-600"
                 />
                 <span>Rincian skor 3 jenis soal TKA (PG, PGK, MCMA)</span>
               </label>
@@ -238,7 +238,7 @@ export const ExamResultsPdfModal: React.FC<ExamResultsPdfModalProps> = ({
                   type="checkbox"
                   checked={includeTypeSummary}
                   onChange={(e) => setIncludeTypeSummary(e.target.checked)}
-                  className="mt-0.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                  className="mt-0.5 rounded border-slate-300 text-indigo-600"
                 />
                 <span>Tabel ringkasan performa per jenis soal</span>
               </label>
@@ -247,14 +247,14 @@ export const ExamResultsPdfModal: React.FC<ExamResultsPdfModalProps> = ({
                   type="checkbox"
                   checked={includeSignatures}
                   onChange={(e) => setIncludeSignatures(e.target.checked)}
-                  className="mt-0.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                  className="mt-0.5 rounded border-slate-300 text-indigo-600"
                 />
                 <span>Blok pengesahan &amp; tanda tangan</span>
               </label>
             </div>
 
             {includeSignatures && (
-              <div className="space-y-2.5 pt-2 border-t border-slate-200">
+              <div className="space-y-2.5 pt-2 border-t border-slate-200/80">
                 <p className="text-xs font-semibold text-slate-700">Penandatangan</p>
                 <div>
                   <label className="block text-[11px] text-slate-500 mb-1">Kota / Lokasi</label>
@@ -262,7 +262,7 @@ export const ExamResultsPdfModal: React.FC<ExamResultsPdfModalProps> = ({
                     type="text"
                     value={cityName}
                     onChange={(e) => setCityName(e.target.value)}
-                    className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-300 rounded-md"
+                    className="w-full h-8 px-2.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-500"
                   />
                 </div>
                 <div>
@@ -271,7 +271,7 @@ export const ExamResultsPdfModal: React.FC<ExamResultsPdfModalProps> = ({
                     type="text"
                     value={principalName}
                     onChange={(e) => setPrincipalName(e.target.value)}
-                    className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-300 rounded-md"
+                    className="w-full h-8 px-2.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-500"
                   />
                 </div>
                 <div>
@@ -280,7 +280,7 @@ export const ExamResultsPdfModal: React.FC<ExamResultsPdfModalProps> = ({
                     type="text"
                     value={proctorName}
                     onChange={(e) => setProctorName(e.target.value)}
-                    className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-300 rounded-md"
+                    className="w-full h-8 px-2.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-500"
                   />
                 </div>
               </div>
@@ -288,27 +288,24 @@ export const ExamResultsPdfModal: React.FC<ExamResultsPdfModalProps> = ({
           </aside>
 
           {/* Right Live Printable Paper Preview */}
-          <div className="lg:col-span-9 bg-slate-200/80 p-4 md:p-6 overflow-y-auto print-sheet-container">
+          <div className="lg:col-span-9 bg-slate-200/60 p-4 md:p-6 overflow-y-auto print-sheet-container">
             <div
-              className={`mx-auto bg-white shadow-lg border border-slate-300 p-6 md:p-8 text-slate-900 print-only-sheet ${
+              className={`mx-auto bg-white shadow-md border border-slate-300 p-6 md:p-8 text-slate-900 print-only-sheet ${
                 orientation === 'landscape' ? 'max-w-[1040px]' : 'max-w-[760px]'
               }`}
             >
               {/* Kop Surat */}
-              <div className="flex flex-wrap items-start justify-between gap-4 pb-3 border-b-2 border-blue-900">
-                <div className="flex items-start gap-3">
-                  <div className="w-1.5 h-14 bg-blue-900 shrink-0" />
-                  <div>
-                    <p className="text-base font-extrabold tracking-tight text-slate-900 uppercase">
-                      {examConfig.schoolName || 'SDN HARAPAN NUSANTARA'}
-                    </p>
-                    <p className="text-xs font-bold text-blue-900 tracking-wide">
-                      LAPORAN REKAPITULASI HASIL UJIAN CBT ONLINE
-                    </p>
-                    <p className="text-xs text-slate-600 mt-0.5">
-                      {examConfig.title} · {examConfig.subtitle}
-                    </p>
-                  </div>
+              <div className="flex flex-wrap items-start justify-between gap-4 pb-3 border-b-2 border-slate-900">
+                <div>
+                  <p className="text-base font-bold tracking-tight text-slate-950 uppercase">
+                    {examConfig.schoolName || 'SD PEDAK'}
+                  </p>
+                  <p className="text-xs font-semibold text-slate-700 tracking-wide">
+                    LAPORAN REKAPITULASI HASIL UJIAN CBT ONLINE
+                  </p>
+                  <p className="text-xs text-slate-600 mt-0.5">
+                    {examConfig.title} · {examConfig.subtitle}
+                  </p>
                 </div>
                 <div className="text-right text-[11px] text-slate-600 space-y-0.5 font-mono tabular-nums">
                   <p>Tanggal: {examConfig.scheduleDate || formattedDate}</p>
@@ -320,51 +317,51 @@ export const ExamResultsPdfModal: React.FC<ExamResultsPdfModalProps> = ({
                   </p>
                 </div>
               </div>
-              <div className="h-px bg-slate-300 mt-0.5 mb-4" />
+              <div className="h-px bg-slate-200 mt-0.5 mb-4" />
 
               {/* KPI Summary Strip */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
-                <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                <div className="bg-sky-50/60 border border-sky-200/80 rounded-lg p-3">
+                  <p className="text-[11px] font-medium text-sky-800">
                     Total Peserta
                   </p>
-                  <p className="mt-1 text-lg font-bold font-mono tabular-nums text-blue-700">
+                  <p className="mt-1 text-lg font-bold font-mono tabular-nums text-slate-950">
                     {report.totalRegistered} Siswa
                   </p>
-                  <p className="text-[11px] text-slate-500">
+                  <p className="text-[11px] text-slate-600">
                     {report.finishedCount} selesai · {report.startedCount} masuk
                   </p>
                 </div>
-                <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                <div className="bg-indigo-50/60 border border-indigo-200/80 rounded-lg p-3">
+                  <p className="text-[11px] font-medium text-indigo-800">
                     Rata-Rata Nilai
                   </p>
-                  <p className="mt-1 text-lg font-bold font-mono tabular-nums text-slate-900">
+                  <p className="mt-1 text-lg font-bold font-mono tabular-nums text-slate-950">
                     {report.averageScore !== null ? report.averageScore : '—'}
                   </p>
-                  <p className="text-[11px] text-slate-500">
+                  <p className="text-[11px] text-slate-600">
                     Dari {report.gradedCount} peserta ternilai
                   </p>
                 </div>
-                <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                <div className="bg-amber-50/60 border border-amber-200/80 rounded-lg p-3">
+                  <p className="text-[11px] font-medium text-amber-800">
                     Tertinggi / Terendah
                   </p>
-                  <p className="mt-1 text-lg font-bold font-mono tabular-nums text-amber-700">
+                  <p className="mt-1 text-lg font-bold font-mono tabular-nums text-slate-950">
                     {report.highestScore !== null && report.lowestScore !== null
                       ? `${report.highestScore} / ${report.lowestScore}`
                       : '—'}
                   </p>
-                  <p className="text-[11px] text-slate-500">Skala nilai 0 – 100</p>
+                  <p className="text-[11px] text-slate-600">Skala nilai 0 – 100</p>
                 </div>
-                <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                <div className="bg-emerald-50/60 border border-emerald-200/80 rounded-lg p-3">
+                  <p className="text-[11px] font-medium text-emerald-800">
                     Ketuntasan (KKM {report.kkm})
                   </p>
                   <p className="mt-1 text-lg font-bold font-mono tabular-nums text-emerald-700">
                     {report.passedCount}/{report.gradedCount} ({report.passRatePct}%)
                   </p>
-                  <p className="text-[11px] text-slate-500">
+                  <p className="text-[11px] text-slate-600">
                     {Math.max(0, report.gradedCount - report.passedCount)} perlu remedial
                   </p>
                 </div>
@@ -378,7 +375,7 @@ export const ExamResultsPdfModal: React.FC<ExamResultsPdfModalProps> = ({
                 <div className="overflow-x-auto border border-slate-200 rounded-lg">
                   <table className="w-full text-left border-collapse text-[11px]">
                     <thead>
-                      <tr className="bg-blue-900 text-white font-semibold">
+                      <tr className="bg-slate-800 text-white font-semibold">
                         <th className="py-2 px-2 text-center">No</th>
                         <th className="py-2 px-2">NIS</th>
                         <th className="py-2 px-2">Nama Peserta</th>
@@ -466,14 +463,14 @@ export const ExamResultsPdfModal: React.FC<ExamResultsPdfModalProps> = ({
                                   r.finalScore === null
                                     ? 'text-slate-400'
                                     : r.finalScore >= report.kkm
-                                      ? 'text-blue-700'
+                                      ? 'text-slate-950'
                                       : 'text-rose-700'
                                 }`}
                               >
                                 {r.finalScore !== null ? r.finalScore : '—'}
                               </td>
                               <td
-                                className={`py-1.5 px-2 text-center font-bold ${
+                                className={`py-1.5 px-2 text-center font-semibold ${
                                   r.kkmStatus === 'Tuntas'
                                     ? 'text-emerald-700'
                                     : r.kkmStatus === 'Belum Tuntas'
@@ -494,7 +491,7 @@ export const ExamResultsPdfModal: React.FC<ExamResultsPdfModalProps> = ({
                 </div>
               </div>
 
-              {/* Section B: 5 Question Type Summary */}
+              {/* Section B: Question Type Summary */}
               {includeTypeSummary && (
                 <div className="mb-6">
                   <h3 className="text-xs font-bold text-slate-900 mb-2">
