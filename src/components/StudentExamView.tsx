@@ -44,13 +44,32 @@ import {
   saveOfflineExamState,
   type OfflineExamState,
 } from '../lib/offlineSync';
+import { onAuthStateChanged, type User } from 'firebase/auth';
+import {
+  auth,
+  signInWithGooglePopup,
+  testConnection,
+} from '../lib/firebase';
+import {
+  DEFAULT_PUBLIC_EXAM_CONFIG,
+  fetchUnlockedQuestionKeys,
+  joinOrResumeStudentSession,
+  reportStudentViolation,
+  setStudentOfflinePresence,
+  submitAndGradeStudentExam,
+  subscribePublicExamConfig,
+  subscribeStudentExamRealtime,
+  syncStudentAnswers,
+  syncStudentDoubtful,
+  verifyStudentExamEntry,
+} from '../lib/firebaseCbt';
+import { applyStudentRandomization } from '../lib/shuffle';
 import {
   playCheatAlarm,
   playProctorAlert,
   playTestBeep,
   unlockAudio,
 } from '../lib/sound';
-import { createCbtSocket, type ManagedSocket } from '../lib/ws';
 import type {
   Announcement,
   ExamConfig,
@@ -126,7 +145,9 @@ export const StudentExamView: React.FC<StudentExamViewProps> = ({
     return autoJoin && Boolean(existingId);
   });
 
-  const [wsConnected, setWsConnected] = useState(false);
+  const [authUser, setAuthUser] = useState<User | null>(() => auth.currentUser);
+  const [googleSigningIn, setGoogleSigningIn] = useState(false);
+  const [firestoreConnected, setFirestoreConnected] = useState(false);
   const [browserOnline, setBrowserOnline] = useState(() =>
     typeof navigator !== 'undefined' ? navigator.onLine : true
   );
@@ -136,6 +157,7 @@ export const StudentExamView: React.FC<StudentExamViewProps> = ({
   const [batteryLabel, setBatteryLabel] = useState<string>('Terdeteksi');
   const [examConfig, setExamConfig] = useState<ExamConfig | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
+  const [unlockedKeyQuestions, setUnlockedKeyQuestions] = useState<Question[] | null>(null);
   const [session, setSession] = useState<StudentSession | null>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [displaySeconds, setDisplaySeconds] = useState<number>(0);
@@ -157,13 +179,7 @@ export const StudentExamView: React.FC<StudentExamViewProps> = ({
     readLocalDraft(LOGIN_DRAFT_KEYS.studentSessionCode)
   );
   const [entrySubmitting, setEntrySubmitting] = useState(false);
-  const [publicConfig, setPublicConfig] = useState<{
-    title?: string;
-    requireSessionCode?: boolean;
-    freePracticeActive?: boolean;
-    freePracticeEnabled?: boolean;
-    freePracticeEndAt?: string;
-  } | null>(null);
+  const [publicConfig, setPublicConfig] = useState<ExamConfig>(DEFAULT_PUBLIC_EXAM_CONFIG);
   const [fontScale, setFontScale] = useState<'normal' | 'large' | 'xlarge'>(() => {
     const saved = readLocalDraft('cbt_exam_font_scale');
     return saved === 'large' || saved === 'xlarge' ? saved : 'normal';
@@ -174,10 +190,17 @@ export const StudentExamView: React.FC<StudentExamViewProps> = ({
   const [fullscreenExitCount, setFullscreenExitCount] = useState(0);
   const [fullscreenError, setFullscreenError] = useState('');
 
-  const socketRef = useRef<ManagedSocket | null>(null);
   const sessionRef = useRef<StudentSession | null>(null);
   const examConfigRef = useRef<ExamConfig | null>(null);
+  const publicConfigRef = useRef<ExamConfig>(DEFAULT_PUBLIC_EXAM_CONFIG);
+  const studentNameRef = useRef<string>(studentName);
+  const studentNisRef = useRef<string>(studentNis);
+  const timerInitializedRef = useRef<boolean>(false);
+  const questionsRef = useRef<Question[]>([]);
+  const displaySecondsRef = useRef<number>(0);
   const offlineStateRef = useRef<OfflineExamState | null>(null);
+  const hadSessionRef = useRef<boolean>(false);
+  const keysFetchedRef = useRef<boolean>(false);
   const lastViolationAtRef = useRef<number>(0);
   const fiveMinuteWarnedRef = useRef<boolean>(false);
   const autoSubmittedRef = useRef<boolean>(false);
@@ -186,13 +209,48 @@ export const StudentExamView: React.FC<StudentExamViewProps> = ({
 
   const FULLSCREEN_GRACE_SECONDS = 10;
   const MAX_FULLSCREEN_WARNINGS = 3;
-  const isConnectionHealthy = browserOnline && heartbeatOk && (joined ? wsConnected : true);
+  const isConnectionHealthy =
+    browserOnline && heartbeatOk && (joined ? firestoreConnected : true);
 
   useEffect(() => {
     writeLocalDraft('cbt_exam_font_scale', fontScale);
   }, [fontScale]);
 
-  // Heartbeat API + online/offline network monitor
+  useEffect(() => {
+    studentNameRef.current = studentName;
+  }, [studentName]);
+
+  useEffect(() => {
+    studentNisRef.current = studentNis;
+  }, [studentNis]);
+
+  useEffect(() => {
+    publicConfigRef.current = publicConfig;
+  }, [publicConfig]);
+
+  useEffect(() => {
+    displaySecondsRef.current = displaySeconds;
+  }, [displaySeconds]);
+
+  useEffect(() => {
+    timerInitializedRef.current = timerInitialized;
+  }, [timerInitialized]);
+
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (user) => {
+      setAuthUser(user);
+      if (user) {
+        setStudentId(user.uid);
+        sessionStorage.setItem('cbt_active_student_id', user.uid);
+        if (!studentName && user.displayName) {
+          setStudentName(user.displayName);
+        }
+      }
+    });
+    return () => unsub();
+  }, [studentName]);
+
+  // Heartbeat API + online/offline network monitor via Firestore
   useEffect(() => {
     let active = true;
     const pingHeartbeat = async () => {
@@ -200,18 +258,8 @@ export const StudentExamView: React.FC<StudentExamViewProps> = ({
         if (active) setHeartbeatOk(false);
         return;
       }
-      try {
-        const controller = new AbortController();
-        const timer = window.setTimeout(() => controller.abort(), 4500);
-        const res = await fetch('/api/heartbeat', {
-          cache: 'no-store',
-          signal: controller.signal,
-        });
-        window.clearTimeout(timer);
-        if (active) setHeartbeatOk(res.ok);
-      } catch {
-        if (active) setHeartbeatOk(false);
-      }
+      const ok = await testConnection();
+      if (active) setHeartbeatOk(ok);
     };
 
     const handleOnline = () => {
@@ -228,7 +276,7 @@ export const StudentExamView: React.FC<StudentExamViewProps> = ({
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
     void pingHeartbeat();
-    const interval = window.setInterval(() => void pingHeartbeat(), 10000);
+    const interval = window.setInterval(() => void pingHeartbeat(), 15000);
     return () => {
       active = false;
       window.removeEventListener('online', handleOnline);
@@ -308,11 +356,21 @@ export const StudentExamView: React.FC<StudentExamViewProps> = ({
 
     setFullscreenGraceSeconds(null);
     playCheatAlarm();
-    socketRef.current?.send({
-      type: 'student:violation',
-      studentId: currentSess.id,
+    void reportStudentViolation({
+      session: currentSess,
+      examConfig: currentCfg,
       reason,
-    });
+    })
+      .then((res) => {
+        if (res.warningOnly) {
+          setViolationWarningModal({
+            count: res.count,
+            max: res.max,
+            reason,
+          });
+        }
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -438,7 +496,7 @@ export const StudentExamView: React.FC<StudentExamViewProps> = ({
     }
   };
 
-  const flushOfflineQueue = useCallback((sock: ManagedSocket, sess: StudentSession) => {
+  const flushOfflineQueue = useCallback(async (sess: StudentSession) => {
     const cached = loadOfflineExamState(sess.id);
     if (!cached) {
       setPendingSyncCount(0);
@@ -447,32 +505,69 @@ export const StudentExamView: React.FC<StudentExamViewProps> = ({
     }
     offlineStateRef.current = cached;
     if (sess.status === 'active') {
+      const mergedAnswers = { ...sess.answers };
+      let hasAnswerFlush = false;
       for (const qId of cached.pendingAnswerIds) {
         if (cached.answers[qId] !== undefined) {
-          sock.send({
-            type: 'student:answer',
-            studentId: sess.id,
-            questionId: qId,
-            value: cached.answers[qId],
-          });
+          mergedAnswers[qId] = cached.answers[qId];
+          hasAnswerFlush = true;
         }
       }
-      if (cached.pendingSubmit) {
-        sock.send({ type: 'student:submit', studentId: sess.id });
+      if (hasAnswerFlush) {
+        try {
+          await syncStudentAnswers({
+            uid: sess.id,
+            answers: mergedAnswers,
+            remainingSeconds: displaySecondsRef.current || sess.remainingSeconds,
+          });
+          const nextOffline: OfflineExamState = {
+            ...cached,
+            pendingAnswerIds: [],
+            updatedAt: new Date().toISOString(),
+          };
+          offlineStateRef.current = nextOffline;
+          saveOfflineExamState(nextOffline);
+          setPendingSyncCount(0);
+          setLastSavedText(
+            `Tersimpan ${new Date().toLocaleTimeString('id-ID', {
+              hour: '2-digit',
+              minute: '2-digit',
+              second: '2-digit',
+            })}`
+          );
+        } catch {
+          setPendingSyncCount(cached.pendingAnswerIds.length);
+        }
       }
+      if (cached.pendingSubmit && examConfigRef.current) {
+        try {
+          await submitAndGradeStudentExam({
+            session: { ...sess, answers: mergedAnswers },
+            activeQuestions: questionsRef.current,
+            examConfig: examConfigRef.current,
+            remainingSeconds: displaySecondsRef.current || sess.remainingSeconds,
+          });
+          clearOfflineExamState(sess.id);
+          setPendingOfflineSubmit(false);
+        } catch {
+          setPendingOfflineSubmit(true);
+        }
+      }
+    } else {
+      setPendingSyncCount(cached.pendingAnswerIds.length);
+      setPendingOfflineSubmit(Boolean(cached.pendingSubmit));
     }
-    setPendingSyncCount(cached.pendingAnswerIds.length);
-    setPendingOfflineSubmit(Boolean(cached.pendingSubmit));
   }, []);
 
   const submitExam = useCallback(() => {
     const currentSess = sessionRef.current;
-    if (!currentSess) return;
+    const currentCfg = examConfigRef.current;
+    if (!currentSess || !currentCfg) return;
     setFullscreenGraceSeconds(null);
     setConfirmSubmitOpen(false);
     setMobileGridOpen(false);
 
-    if (!browserOnline || !wsConnected) {
+    if (!browserOnline || !heartbeatOk) {
       const existing = offlineStateRef.current ||
         loadOfflineExamState(currentSess.id) || {
           studentId: currentSess.id,
@@ -494,165 +589,159 @@ export const StudentExamView: React.FC<StudentExamViewProps> = ({
       saveOfflineExamState(updatedOffline);
       setPendingOfflineSubmit(true);
       setLastSavedText('Offline · Pengumpulan menunggu koneksi');
+      return;
     }
 
-    socketRef.current?.send({
-      type: 'student:submit',
-      studentId: currentSess.id,
-    });
-  }, [browserOnline, wsConnected]);
+    void submitAndGradeStudentExam({
+      session: currentSess,
+      activeQuestions: questionsRef.current,
+      examConfig: currentCfg,
+      remainingSeconds: displaySecondsRef.current,
+    })
+      .then(() => {
+        clearOfflineExamState(currentSess.id);
+        setPendingSyncCount(0);
+        setPendingOfflineSubmit(false);
+      })
+      .catch(() => {
+        setLastSavedText('Gagal mengirim — mencoba ulang...');
+      });
+  }, [browserOnline, heartbeatOk]);
+
+  // Retry flushing offline queue whenever connection becomes healthy again
+  useEffect(() => {
+    if (!joined || !isConnectionHealthy || !sessionRef.current) return;
+    void flushOfflineQueue(sessionRef.current);
+  }, [joined, isConnectionHealthy, flushOfflineQueue]);
 
   useEffect(() => {
-    if (!joined || !studentId) return;
+    if (!joined || !authUser) return;
     sessionStorage.removeItem('cbt_auto_join');
+    const uid = authUser.uid;
+    let active = true;
+    hadSessionRef.current = false;
+    keysFetchedRef.current = false;
 
-    const sock = createCbtSocket({
-      onOpen: (ws) => {
-        ws.send(
-          JSON.stringify({
-            type: 'student:join',
-            studentId,
-            name: studentName.trim() || 'Murid Tryout',
-            nis: studentNis.trim() || '6001',
-          })
+    const unsub = subscribeStudentExamRealtime({
+      uid,
+      onConfig: (cfg) => {
+        if (!active) return;
+        setExamConfig(cfg);
+        setFirestoreConnected(true);
+      },
+      onQuestions: (qs) => {
+        if (!active) return;
+        setQuestions(qs);
+        setCurrentIndex((prev) =>
+          qs.length > 0 ? Math.min(prev, qs.length - 1) : 0
         );
       },
-      onStatusChange: (connected) => setWsConnected(connected),
-      onMessage: (data) => {
-        if (data.type === 'student:init') {
-          const cfg = data.examConfig as ExamConfig;
-          const qs = data.questions as Question[];
-          const sess = data.session as StudentSession;
-          const cached = loadOfflineExamState(sess.id);
+      onSession: (sess, exists) => {
+        if (!active) return;
+        setFirestoreConnected(true);
+        if (!exists || !sess) {
+          if (hadSessionRef.current) {
+            clearOfflineExamState(uid);
+            sessionStorage.removeItem('cbt_active_student_id');
+            setJoined(false);
+            setSession(null);
+            setTimerInitialized(false);
+            setUnlockedKeyQuestions(null);
+          }
+          return;
+        }
 
-          let mergedSess = sess;
-          if (cached && sess.status === 'active' && cached.pendingAnswerIds.length > 0) {
-            const mergedAnswers = { ...sess.answers };
-            for (const qId of cached.pendingAnswerIds) {
-              if (cached.answers[qId] !== undefined) {
-                mergedAnswers[qId] = cached.answers[qId];
-              }
+        hadSessionRef.current = true;
+        const cached = loadOfflineExamState(sess.id);
+        let mergedSess = sess;
+        if (cached && sess.status === 'active' && cached.pendingAnswerIds.length > 0) {
+          const mergedAnswers = { ...sess.answers };
+          for (const qId of cached.pendingAnswerIds) {
+            if (cached.answers[qId] !== undefined) {
+              mergedAnswers[qId] = cached.answers[qId];
             }
-            mergedSess = { ...sess, answers: mergedAnswers };
           }
+          mergedSess = { ...sess, answers: mergedAnswers };
+        }
 
-          setExamConfig(cfg);
-          setQuestions(qs);
-          setSession(mergedSess);
-          setDisplaySeconds(mergedSess.remainingSeconds);
-          setTimerInitialized(true);
-          fiveMinuteWarnedRef.current = false;
-          autoSubmittedRef.current = false;
-
-          if (sess.status === 'submitted' || sess.status === 'force_stopped') {
-            clearOfflineExamState(sess.id);
-            setPendingSyncCount(0);
-            setPendingOfflineSubmit(false);
-          } else if (socketRef.current) {
-            flushOfflineQueue(socketRef.current, mergedSess);
+        setSession((prev) => {
+          if (
+            prev?.status !== 'violation_locked' &&
+            mergedSess.status === 'violation_locked'
+          ) {
+            playCheatAlarm();
           }
-          return;
-        }
-        if (data.type === 'session:updated') {
-          const updated = data.session as StudentSession;
-          setSession((prev) => {
-            if (
-              prev?.status !== 'violation_locked' &&
-              updated.status === 'violation_locked'
-            ) {
-              playCheatAlarm();
-            }
-            return updated;
-          });
-          setDisplaySeconds(updated.remainingSeconds);
-          if (updated.status === 'submitted' || updated.status === 'force_stopped') {
-            clearOfflineExamState(updated.id);
-            setPendingSyncCount(0);
-            setPendingOfflineSubmit(false);
-          }
-          return;
-        }
-        if (data.type === 'violation:warning') {
-          setViolationWarningModal({
-            count: Number(data.count || 1),
-            max: Number(data.max || 3),
-            reason: String(data.reason || 'Pelanggaran terdeteksi'),
-          });
-          return;
-        }
-        if (data.type === 'proctor:time_added') {
-          const mins = Number(data.minutes || 5);
-          const reason = String(data.reason || '');
-          playProctorAlert();
-          setTimeAddedNotice(
-            `Proktor menambahkan +${mins} menit${reason ? ` (${reason})` : ''}.`
-          );
-          return;
-        }
-        if (data.type === 'announcement:live') {
-          const ann = data.announcement as Announcement | undefined;
-          if (ann) {
+          if (prev && mergedSess.remainingSeconds > prev.remainingSeconds + 30) {
+            const addedMins = Math.round(
+              (mergedSess.remainingSeconds - prev.remainingSeconds) / 60
+            );
             playProctorAlert();
-            setLiveAnnouncement(ann);
+            setTimeAddedNotice(`Proktor menambahkan +${addedMins} menit.`);
           }
-          return;
-        }
-        if (data.type === 'exam:updated') {
-          setExamConfig(data.examConfig as ExamConfig);
-          return;
-        }
-        if (data.type === 'questions:updated') {
-          const nextQs = data.questions as Question[];
-          setQuestions(nextQs);
-          setCurrentIndex((prev) =>
-            nextQs.length > 0 ? Math.min(prev, nextQs.length - 1) : 0
-          );
-          return;
-        }
-        if (data.type === 'answer:ack') {
-          const ackQuestionId = String(data.questionId || '');
-          const currentSess = sessionRef.current;
-          if (currentSess && ackQuestionId) {
-            const existing = offlineStateRef.current || loadOfflineExamState(currentSess.id);
-            if (existing) {
-              const nextPending = existing.pendingAnswerIds.filter((id) => id !== ackQuestionId);
-              const nextState: OfflineExamState = {
-                ...existing,
-                pendingAnswerIds: nextPending,
-                updatedAt: new Date().toISOString(),
-              };
-              offlineStateRef.current = nextState;
-              saveOfflineExamState(nextState);
-              setPendingSyncCount(nextPending.length);
-            }
+          return mergedSess;
+        });
+
+        setDisplaySeconds((prev) => {
+          if (!timerInitializedRef.current) return mergedSess.remainingSeconds;
+          if (Math.abs(mergedSess.remainingSeconds - prev) > 12) {
+            return mergedSess.remainingSeconds;
           }
-          const savedAt = new Date(String(data.savedAt));
-          setLastSavedText(
-            `Tersimpan ${savedAt.toLocaleTimeString('id-ID', {
-              hour: '2-digit',
-              minute: '2-digit',
-              second: '2-digit',
-            })}`
-          );
-          return;
+          return prev;
+        });
+        timerInitializedRef.current = true;
+        setTimerInitialized(true);
+
+        if (sess.status === 'submitted' || sess.status === 'force_stopped') {
+          clearOfflineExamState(sess.id);
+          setPendingSyncCount(0);
+          setPendingOfflineSubmit(false);
+          if (!keysFetchedRef.current && questionsRef.current.length > 0) {
+            keysFetchedRef.current = true;
+            void fetchUnlockedQuestionKeys(questionsRef.current)
+              .then((fullQs) => {
+                if (active) setUnlockedKeyQuestions(fullQs);
+                if (!sess.gradeSummary && examConfigRef.current) {
+                  void submitAndGradeStudentExam({
+                    session: sess,
+                    activeQuestions: fullQs,
+                    examConfig: examConfigRef.current,
+                    remainingSeconds: sess.remainingSeconds,
+                  });
+                }
+              })
+              .catch(() => {});
+          }
+        } else {
+          void flushOfflineQueue(mergedSess);
         }
-        if (data.type === 'student:reset') {
-          if (studentId) clearOfflineExamState(studentId);
-          sessionStorage.removeItem('cbt_active_student_id');
-          setJoined(false);
-          setSession(null);
-          setStudentId(null);
-          setTimerInitialized(false);
-        }
+      },
+      onAnnouncements: () => {},
+      onLiveAnnouncement: (ann) => {
+        if (!active) return;
+        playProctorAlert();
+        setLiveAnnouncement(ann);
       },
     });
 
-    socketRef.current = sock;
-    return () => {
-      sock.close();
-      socketRef.current = null;
+    void joinOrResumeStudentSession({
+      uid,
+      name: studentNameRef.current.trim() || authUser.displayName || 'Murid Tryout',
+      nis: studentNisRef.current.trim() || '6001',
+      publicConfig: examConfigRef.current || publicConfigRef.current,
+    }).catch(() => {});
+
+    const handleBeforeUnload = () => {
+      void setStudentOfflinePresence(uid, displaySecondsRef.current);
     };
-  }, [joined, studentId, studentName, studentNis, flushOfflineQueue]);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      active = false;
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      void setStudentOfflinePresence(uid, displaySecondsRef.current);
+      unsub();
+    };
+  }, [joined, authUser, flushOfflineQueue]);
 
   // Global Countdown Timer Tick
   useEffect(() => {
@@ -748,31 +837,46 @@ export const StudentExamView: React.FC<StudentExamViewProps> = ({
 
   useEffect(() => {
     if (joined) return;
-    let active = true;
-    const loadPublicConfig = () => {
-      fetch('/api/public-config')
-        .then((res) => res.json())
-        .then((data) => {
-          if (active) setPublicConfig(data);
-        })
-        .catch(() => {});
-    };
-    loadPublicConfig();
-    window.addEventListener('focus', loadPublicConfig);
-    return () => {
-      active = false;
-      window.removeEventListener('focus', loadPublicConfig);
-    };
+    const unsub = subscribePublicExamConfig((cfg) => {
+      setPublicConfig(cfg);
+      setFirestoreConnected(true);
+    });
+    return () => unsub();
   }, [joined]);
+
+  const freePracticeActive = useMemo(
+    () => isFreePracticeActive(publicConfig),
+    [publicConfig]
+  );
+
+  const handleGoogleSignIn = async () => {
+    setFormError('');
+    setGoogleSigningIn(true);
+    try {
+      const user = await signInWithGooglePopup();
+      setAuthUser(user);
+      setStudentId(user.uid);
+      if (!studentName.trim() && user.displayName) {
+        setStudentName(user.displayName);
+      }
+    } catch {
+      setFormError('Login Google gagal atau dibatalkan.');
+    } finally {
+      setGoogleSigningIn(false);
+    }
+  };
 
   const handleStartExam = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!authUser) {
+      setFormError('Silakan masuk dengan akun Google terlebih dahulu.');
+      return;
+    }
     if (!studentName.trim() || !studentNis.trim()) {
       setFormError('Nama murid dan NIS wajib diisi.');
       return;
     }
-    const requiresToken =
-      Boolean(publicConfig?.requireSessionCode) && !publicConfig?.freePracticeActive;
+    const requiresToken = Boolean(publicConfig.requireSessionCode) && !freePracticeActive;
     if (requiresToken && !entrySessionCode.trim()) {
       setFormError('Masukkan kode sesi / token ujian yang diberikan proktor.');
       return;
@@ -780,36 +884,33 @@ export const StudentExamView: React.FC<StudentExamViewProps> = ({
     setFormError('');
     setEntrySubmitting(true);
     try {
-      const res = await fetch('/api/student/auth', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: studentName.trim(),
-          nis: studentNis.trim(),
-          sessionCode: entrySessionCode.trim(),
-        }),
+      const result = await verifyStudentExamEntry({
+        user: authUser,
+        name: studentName.trim(),
+        nis: studentNis.trim(),
+        sessionCode: entrySessionCode.trim(),
+        publicConfig,
       });
-      const data = await res.json();
-      if (!res.ok) {
-        setFormError(data.error || 'Gagal memverifikasi peserta.');
+      if (!result.ok) {
+        setFormError(result.error || 'Gagal memverifikasi peserta.');
         return;
       }
 
       unlockAudio();
-      const verifiedName = String(data.studentName || studentName.trim());
-      const verifiedNis = String(data.nis || studentNis.trim());
+      const verifiedName = String(result.studentName || studentName.trim());
+      const verifiedNis = String(result.nis || studentNis.trim());
       setStudentName(verifiedName);
       setStudentNis(verifiedNis);
       writeLocalDraft(LOGIN_DRAFT_KEYS.studentName, verifiedName);
       writeLocalDraft(LOGIN_DRAFT_KEYS.studentNis, verifiedNis);
       writeLocalDraft(LOGIN_DRAFT_KEYS.studentSessionCode, entrySessionCode.trim());
-      const id = String(data.studentId || studentId || `stu-${Date.now().toString(36)}`);
+      const id = String(result.studentId || authUser.uid);
       sessionStorage.setItem('cbt_active_student_id', id);
       setStudentId(id);
       setJoined(true);
       void enterFullscreen();
     } catch {
-      setFormError('Tidak dapat terhubung ke server CBT. Periksa jaringan Anda.');
+      setFormError('Tidak dapat terhubung ke Firestore CBT. Periksa jaringan Anda.');
     } finally {
       setEntrySubmitting(false);
     }
@@ -840,12 +941,35 @@ export const StudentExamView: React.FC<StudentExamViewProps> = ({
       setLastSavedText(`Offline · Tersimpan lokal (${nextOffline.pendingAnswerIds.length})`);
     }
 
-    socketRef.current?.send({
-      type: 'student:answer',
-      studentId: session.id,
-      questionId,
-      value,
-    });
+    void syncStudentAnswers({
+      uid: session.id,
+      answers: nextAnswers,
+      remainingSeconds: displaySecondsRef.current || session.remainingSeconds,
+    })
+      .then(() => {
+        const latest = offlineStateRef.current || loadOfflineExamState(session.id);
+        if (latest) {
+          const clearedPending = latest.pendingAnswerIds.filter((id) => id !== questionId);
+          const updated: OfflineExamState = {
+            ...latest,
+            pendingAnswerIds: clearedPending,
+            updatedAt: new Date().toISOString(),
+          };
+          offlineStateRef.current = updated;
+          saveOfflineExamState(updated);
+          setPendingSyncCount(clearedPending.length);
+        }
+        setLastSavedText(
+          `Tersimpan ${new Date().toLocaleTimeString('id-ID', {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+          })}`
+        );
+      })
+      .catch(() => {
+        setLastSavedText(`Offline · Tersimpan lokal (${pendingSet.size})`);
+      });
   };
 
   const toggleDoubtful = (questionId: string) => {
@@ -866,14 +990,34 @@ export const StudentExamView: React.FC<StudentExamViewProps> = ({
       offlineStateRef.current = nextOffline;
       saveOfflineExamState(nextOffline);
     }
-    socketRef.current?.send({
-      type: 'student:toggle_doubtful',
-      studentId: session.id,
-      questionId,
-    });
+    void syncStudentDoubtful({
+      uid: session.id,
+      doubtfulIds: nextDoubtful,
+    }).catch(() => {});
   };
 
-  const currentQuestion = questions[currentIndex];
+  const activeQuestionList = useMemo(() => {
+    const raw = unlockedKeyQuestions || questions;
+    return applyStudentRandomization(
+      raw,
+      session?.id || studentId || 'seed',
+      examConfig?.shuffleQuestions,
+      examConfig?.shuffleOptions
+    );
+  }, [
+    unlockedKeyQuestions,
+    questions,
+    session?.id,
+    studentId,
+    examConfig?.shuffleQuestions,
+    examConfig?.shuffleOptions,
+  ]);
+
+  useEffect(() => {
+    questionsRef.current = activeQuestionList;
+  }, [activeQuestionList]);
+
+  const currentQuestion = activeQuestionList[currentIndex];
 
   const shuffledRightPairs = useMemo(() => {
     if (!currentQuestion || currentQuestion.type !== 'matching') return [];
@@ -883,12 +1027,12 @@ export const StudentExamView: React.FC<StudentExamViewProps> = ({
 
   const answeredCount = useMemo(() => {
     if (!session) return 0;
-    return questions.filter((q) =>
+    return activeQuestionList.filter((q) =>
       isQuestionAnswered(q, session.answers[q.id])
     ).length;
-  }, [questions, session]);
+  }, [activeQuestionList, session]);
 
-  const unansweredCount = questions.length - answeredCount;
+  const unansweredCount = activeQuestionList.length - answeredCount;
 
   // 1. Direct Entry Card
   if (!joined) {
@@ -951,7 +1095,18 @@ export const StudentExamView: React.FC<StudentExamViewProps> = ({
             </div>
 
             <form onSubmit={handleStartExam} className="space-y-4">
-              {publicConfig?.freePracticeActive && (
+              {!authUser && (
+                <button
+                  type="button"
+                  disabled={googleSigningIn}
+                  onClick={handleGoogleSignIn}
+                  className="w-full h-11 inline-flex items-center justify-center gap-2 px-4 text-xs font-semibold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-xl transition-colors"
+                >
+                  {googleSigningIn ? 'Menghubungkan Google...' : 'Masuk dengan Akun Google Dulu'}
+                </button>
+              )}
+
+              {freePracticeActive && (
                 <div className="px-3.5 py-2.5 bg-emerald-50/80 dark:bg-emerald-950/50 border border-emerald-200/80 dark:border-emerald-800/70 rounded-xl space-y-0.5">
                   <p className="text-xs font-semibold text-emerald-800 dark:text-emerald-300">
                     Mode Latihan Bebas Aktif
@@ -997,7 +1152,7 @@ export const StudentExamView: React.FC<StudentExamViewProps> = ({
                 />
               </div>
 
-              {publicConfig?.requireSessionCode && !publicConfig?.freePracticeActive && (
+              {publicConfig.requireSessionCode && !freePracticeActive && (
                 <div>
                   <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
                     Token / Kode Sesi
@@ -1017,12 +1172,12 @@ export const StudentExamView: React.FC<StudentExamViewProps> = ({
 
               <button
                 type="submit"
-                disabled={entrySubmitting}
+                disabled={entrySubmitting || !authUser}
                 className="w-full h-11 inline-flex items-center justify-center gap-2 px-5 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 rounded-xl shadow-xs transition-colors"
               >
                 {entrySubmitting
                   ? 'Memverifikasi...'
-                  : publicConfig?.freePracticeActive
+                  : freePracticeActive
                     ? 'Mulai Latihan Bebas Sekarang'
                     : 'Mulai Tryout Sekarang'}
                 <ArrowRight className="w-4 h-4" />
@@ -1136,7 +1291,7 @@ export const StudentExamView: React.FC<StudentExamViewProps> = ({
               Bunyikan Alarm
             </button>
             <span className="text-xs text-slate-400">
-              {wsConnected ? 'Menunggu Guru' : 'Menghubungkan...'}
+              {firestoreConnected ? 'Menunggu Guru' : 'Menghubungkan...'}
             </span>
           </div>
         </div>
@@ -1280,9 +1435,9 @@ export const StudentExamView: React.FC<StudentExamViewProps> = ({
             )}
           </div>
 
-          {grade && (
+          {grade && examConfig.showResultToStudent !== false && (
             <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl divide-y divide-slate-100 dark:divide-slate-800 overflow-hidden shadow-2xs">
-              {questions.map((q, idx) => {
+              {activeQuestionList.map((q, idx) => {
                 const res = grade.breakdown.find((b) => b.questionId === q.id);
                 return (
                   <div key={q.id} className="p-5 space-y-2.5">
@@ -1350,13 +1505,13 @@ export const StudentExamView: React.FC<StudentExamViewProps> = ({
     <div className="space-y-4">
       <ExamProgressBar
         answeredCount={answeredCount}
-        totalCount={questions.length}
+        totalCount={activeQuestionList.length}
         doubtfulCount={session.doubtfulIds.length}
         variant="compact"
       />
 
       <div className="grid grid-cols-5 gap-2">
-        {questions.map((q, idx) => {
+        {activeQuestionList.map((q, idx) => {
           const answered = isQuestionAnswered(q, session.answers[q.id]);
           const doubtful = session.doubtfulIds.includes(q.id);
           const active = idx === currentIndex;
@@ -1653,7 +1808,7 @@ export const StudentExamView: React.FC<StudentExamViewProps> = ({
       <div className="max-w-7xl w-full mx-auto px-4 md:px-6 pt-4 md:pt-5">
         <ExamProgressBar
           answeredCount={answeredCount}
-          totalCount={questions.length}
+          totalCount={activeQuestionList.length}
           doubtfulCount={session.doubtfulIds.length}
           variant="banner"
         />
@@ -1669,7 +1824,7 @@ export const StudentExamView: React.FC<StudentExamViewProps> = ({
               <div className="bg-gradient-to-r from-indigo-50/60 via-sky-50/40 to-white dark:from-slate-800/80 dark:via-slate-900 dark:to-slate-900 border-b border-slate-200/80 dark:border-slate-800 px-5 md:px-6 py-3.5 flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-2 text-xs">
                   <span className="font-mono tabular-nums font-semibold text-indigo-700 dark:text-indigo-300">
-                    Soal {currentIndex + 1} dari {questions.length}
+                    Soal {currentIndex + 1} dari {activeQuestionList.length}
                   </span>
                   <span className="text-slate-300 dark:text-slate-600" aria-hidden="true">·</span>
                   <span className="font-medium text-slate-700 dark:text-slate-200">
@@ -2102,11 +2257,13 @@ export const StudentExamView: React.FC<StudentExamViewProps> = ({
                   Ragu-ragu
                 </button>
 
-                {currentIndex < questions.length - 1 ? (
+                {currentIndex < activeQuestionList.length - 1 ? (
                   <button
                     type="button"
                     onClick={() =>
-                      setCurrentIndex((i) => Math.min(questions.length - 1, i + 1))
+                      setCurrentIndex((i) =>
+                        Math.min(activeQuestionList.length - 1, i + 1)
+                      )
                     }
                     className="h-10 inline-flex items-center gap-1.5 px-5 text-xs md:text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-colors"
                   >

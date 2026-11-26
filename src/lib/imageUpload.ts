@@ -70,7 +70,8 @@ export async function dataUrlToFile(dataUrl: string, filename = 'pasted-image.pn
 
 export async function compressImageToDataUrl(
   file: File,
-  maxDimension = 1280
+  maxDimension = 1024,
+  maxDataUrlLength = 320000
 ): Promise<string> {
   if (!isLikelyImageFile(file)) {
     throw new Error('Format gambar harus PNG, JPG/JPEG, WebP, GIF, atau BMP.');
@@ -84,49 +85,51 @@ export async function compressImageToDataUrl(
   const isNativeServerAllowed =
     NATIVE_ALLOWED_MIME_TYPES.has(mime) && SERVER_ALLOWED_DATA_URL_REGEX.test(rawDataUrl);
 
-  // Keep animated GIFs or already-compact native PNG/WebP/JPG intact
-  if ((mime === 'image/gif' || file.size <= 220 * 1024) && isNativeServerAllowed) {
+  // Keep already-compact images intact
+  if (rawDataUrl.length <= maxDataUrlLength && isNativeServerAllowed) {
     return rawDataUrl;
   }
 
   try {
     const img = await loadImageElement(rawDataUrl);
-    const scale = Math.min(
-      1,
-      maxDimension / Math.max(img.width || 1, img.height || 1)
-    );
-    const targetW = Math.max(1, Math.round(img.width * scale));
-    const targetH = Math.max(1, Math.round(img.height * scale));
+    const qualities = [0.84, 0.72, 0.6, 0.48];
+    const scales = [1, 0.78, 0.6, 0.45];
 
-    const canvas = document.createElement('canvas');
-    canvas.width = targetW;
-    canvas.height = targetH;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) {
-      if (isNativeServerAllowed) return rawDataUrl;
-      throw new Error('Canvas browser tidak tersedia untuk memproses gambar.');
+    for (const dimFactor of scales) {
+      const capDim = Math.max(240, Math.round(maxDimension * dimFactor));
+      const scale = Math.min(1, capDim / Math.max(img.width || 1, img.height || 1));
+      const targetW = Math.max(1, Math.round(img.width * scale));
+      const targetH = Math.max(1, Math.round(img.height * scale));
+
+      const canvas = document.createElement('canvas');
+      canvas.width = targetW;
+      canvas.height = targetH;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        if (isNativeServerAllowed && rawDataUrl.length <= maxDataUrlLength) return rawDataUrl;
+        throw new Error('Canvas browser tidak tersedia untuk memproses gambar.');
+      }
+
+      ctx.drawImage(img, 0, 0, targetW, targetH);
+
+      for (const q of qualities) {
+        const webp = canvas.toDataURL('image/webp', q);
+        if (webp.startsWith('data:image/webp') && webp.length <= maxDataUrlLength) {
+          return webp;
+        }
+        const jpeg = canvas.toDataURL('image/jpeg', q);
+        if (jpeg.startsWith('data:image/jpeg') && jpeg.length <= maxDataUrlLength) {
+          return jpeg;
+        }
+      }
     }
 
-    ctx.drawImage(img, 0, 0, targetW, targetH);
-
-    // Prefer WebP (preserves transparency + great compression), fallback to PNG/JPEG
-    const webp = canvas.toDataURL('image/webp', 0.88);
-    if (
-      webp.startsWith('data:image/webp') &&
-      (!isNativeServerAllowed || webp.length < rawDataUrl.length)
-    ) {
-      return webp;
+    throw new Error('Ukuran gambar terlalu besar untuk disimpan di database. Gunakan gambar beresolusi lebih kecil.');
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('terlalu besar')) {
+      throw err;
     }
-
-    const fallbackType =
-      mime === 'image/jpeg' || mime === 'image/jpg' ? 'image/jpeg' : 'image/png';
-    const compressed = canvas.toDataURL(fallbackType, 0.88);
-    if (!isNativeServerAllowed || compressed.length < rawDataUrl.length) {
-      return compressed;
-    }
-    return rawDataUrl;
-  } catch {
-    if (isNativeServerAllowed) {
+    if (isNativeServerAllowed && rawDataUrl.length <= maxDataUrlLength) {
       return rawDataUrl;
     }
     throw new Error('Format gambar tidak didukung. Gunakan PNG, JPG/JPEG, WebP, atau GIF.');
@@ -134,27 +137,7 @@ export async function compressImageToDataUrl(
 }
 
 export async function uploadQuestionImageFile(file: File): Promise<string> {
-  const dataUrl = await compressImageToDataUrl(file);
-
-  const res = await fetch('/api/uploads/question-image', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      dataUrl,
-      filename: file.name || 'pasted-image.png',
-    }),
-  });
-
-  if (!res.ok) {
-    const errBody = await res.json().catch(() => ({}));
-    throw new Error(errBody.error || 'Gagal mengunggah gambar ke server.');
-  }
-
-  const payload = (await res.json()) as { url?: string };
-  if (!payload.url) {
-    throw new Error('Server tidak mengembalikan URL gambar.');
-  }
-  return payload.url;
+  return compressImageToDataUrl(file, 1024, 320000);
 }
 
 export interface ClipboardImageResult {

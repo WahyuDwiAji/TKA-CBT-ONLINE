@@ -1,9 +1,13 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { onAuthStateChanged, type User } from 'firebase/auth';
 import {
   ArrowRight,
+  CheckCircle2,
   GraduationCap,
   KeyRound,
+  LogOut,
   Monitor,
+  ShieldAlert,
   UserCheck,
   Volume2,
   Wifi,
@@ -12,31 +16,31 @@ import {
 import { ProctorDashboard } from './components/ProctorDashboard';
 import { StudentExamView } from './components/StudentExamView';
 import { ThemeToggleButton } from './components/ThemeToggleButton';
-import { formatFreePracticeDateTime } from './lib/freePractice';
+import {
+  auth,
+  signInWithGooglePopup,
+  signOutFirebase,
+  testConnection,
+} from './lib/firebase';
+import {
+  BOOTSTRAPPED_ADMIN_EMAIL,
+  checkUserIsAdmin,
+  DEFAULT_PUBLIC_EXAM_CONFIG,
+  subscribePublicExamConfig,
+  verifyProctorPinAccess,
+  verifyStudentExamEntry,
+} from './lib/firebaseCbt';
+import { formatFreePracticeDateTime, isFreePracticeActive } from './lib/freePractice';
 import {
   LOGIN_DRAFT_KEYS,
   readLocalDraft,
   writeLocalDraft,
 } from './lib/loginDraft';
 import { playTestBeep, unlockAudio } from './lib/sound';
+import type { ExamConfig } from './types/cbt';
 
 type AppRole = 'portal' | 'student' | 'proctor';
 type EntryTab = 'student' | 'proctor';
-
-interface PublicConfig {
-  title: string;
-  subtitle: string;
-  schoolName?: string;
-  roomName?: string;
-  requireRegisteredNis: boolean;
-  requireSessionCode: boolean;
-  configuredRequireSessionCode?: boolean;
-  freePracticeActive?: boolean;
-  freePracticeEnabled?: boolean;
-  freePracticeScheduled?: boolean;
-  freePracticeStartAt?: string;
-  freePracticeEndAt?: string;
-}
 
 function getInitialRole(): AppRole {
   const params = new URLSearchParams(window.location.search);
@@ -61,7 +65,12 @@ export default function App() {
     );
   });
 
-  const [publicConfig, setPublicConfig] = useState<PublicConfig | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [isUserAdmin, setIsUserAdmin] = useState(false);
+  const [googleSigningIn, setGoogleSigningIn] = useState(false);
+
+  const [publicConfig, setPublicConfig] = useState<ExamConfig>(DEFAULT_PUBLIC_EXAM_CONFIG);
 
   const [name, setName] = useState(() =>
     readLocalDraft(LOGIN_DRAFT_KEYS.studentName)
@@ -88,6 +97,7 @@ export default function App() {
   const [serverOnline, setServerOnline] = useState(() =>
     typeof navigator !== 'undefined' ? navigator.onLine : true
   );
+  const [clockTick, setClockTick] = useState(() => Date.now());
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', isDark);
@@ -122,67 +132,87 @@ export default function App() {
     return () => window.removeEventListener('popstate', onPopState);
   }, []);
 
+  // Firebase Auth listener
   useEffect(() => {
     let active = true;
-    const loadPublicConfig = () => {
-      fetch('/api/public-config', { cache: 'no-store' })
-        .then((res) => {
-          if (!res.ok) throw new Error('Config unreachable');
-          return res.json();
-        })
-        .then((data) => {
-          if (active) {
-            setPublicConfig(data as PublicConfig);
-            setServerOnline(true);
+    const unsub = onAuthStateChanged(auth, async (user) => {
+      if (!active) return;
+      setCurrentUser(user);
+      if (user) {
+        if (!name && user.displayName) {
+          setName(user.displayName);
+        }
+        const adminFlag = await checkUserIsAdmin(user);
+        if (active) {
+          setIsUserAdmin(adminFlag);
+          if (!adminFlag) {
+            sessionStorage.removeItem('cbt_proctor_authed');
+            setProctorAuthed(false);
           }
-        })
-        .catch(() => {
-          if (active) setServerOnline(false);
-        });
+        }
+      } else {
+        setIsUserAdmin(false);
+        sessionStorage.removeItem('cbt_proctor_authed');
+        setProctorAuthed(false);
+      }
+      if (active) setAuthReady(true);
+    });
+    return () => {
+      active = false;
+      unsub();
     };
+  }, []);
+
+  // Firestore Public Config + Heartbeat Connectivity Monitor
+  useEffect(() => {
+    let active = true;
+    const unsubConfig = subscribePublicExamConfig(
+      (cfg) => {
+        if (active) {
+          setPublicConfig(cfg);
+          setServerOnline(true);
+        }
+      },
+      (reachable) => {
+        if (active) setServerOnline(reachable);
+      }
+    );
 
     const pingHeartbeat = async () => {
       if (typeof navigator !== 'undefined' && !navigator.onLine) {
         if (active) setServerOnline(false);
         return;
       }
-      try {
-        const res = await fetch('/api/heartbeat', { cache: 'no-store' });
-        if (active) setServerOnline(res.ok);
-      } catch {
-        if (active) setServerOnline(false);
-      }
+      const ok = await testConnection();
+      if (active) setServerOnline(ok);
     };
 
-    const onOnline = () => {
-      void pingHeartbeat();
-      loadPublicConfig();
-    };
+    const onOnline = () => void pingHeartbeat();
     const onOffline = () => {
       if (active) setServerOnline(false);
     };
 
-    loadPublicConfig();
     void pingHeartbeat();
-    window.addEventListener('focus', loadPublicConfig);
     window.addEventListener('online', onOnline);
     window.addEventListener('offline', onOffline);
-    const intervalId =
-      role === 'portal'
-        ? window.setInterval(() => {
-            loadPublicConfig();
-            void pingHeartbeat();
-          }, 10000)
-        : null;
+    const intervalId = window.setInterval(() => {
+      setClockTick(Date.now());
+      void pingHeartbeat();
+    }, 15000);
 
     return () => {
       active = false;
-      window.removeEventListener('focus', loadPublicConfig);
+      unsubConfig();
       window.removeEventListener('online', onOnline);
       window.removeEventListener('offline', onOffline);
-      if (intervalId !== null) window.clearInterval(intervalId);
+      window.clearInterval(intervalId);
     };
-  }, [role]);
+  }, []);
+
+  const freePracticeActive = useMemo(
+    () => isFreePracticeActive(publicConfig, new Date(clockTick)),
+    [publicConfig, clockTick]
+  );
 
   const navigateRole = (next: AppRole) => {
     const url = new URL(window.location.href);
@@ -195,14 +225,47 @@ export default function App() {
     setRole(next);
   };
 
+  const handleGoogleSignIn = async () => {
+    setFormError('');
+    setGoogleSigningIn(true);
+    try {
+      const user = await signInWithGooglePopup();
+      if (!name.trim() && user.displayName) {
+        setName(user.displayName);
+      }
+    } catch (err) {
+      const code = (err as { code?: string })?.code || '';
+      if (code === 'auth/popup-closed-by-user') {
+        setFormError('Login Google dibatalkan sebelum selesai.');
+      } else if (code === 'auth/popup-blocked') {
+        setFormError('Popup login diblokir browser. Izinkan popup lalu coba lagi.');
+      } else {
+        setFormError('Gagal masuk dengan akun Google. Periksa koneksi internet Anda.');
+      }
+    } finally {
+      setGoogleSigningIn(false);
+    }
+  };
+
+  const handleSwitchGoogleAccount = async () => {
+    setFormError('');
+    sessionStorage.removeItem('cbt_proctor_authed');
+    sessionStorage.removeItem('cbt_active_student_id');
+    setProctorAuthed(false);
+    await signOutFirebase();
+  };
+
   const handleStudentStart = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!currentUser) {
+      setFormError('Silakan masuk menggunakan akun Google terlebih dahulu.');
+      return;
+    }
     if (!name.trim() || !nis.trim()) {
       setFormError('Lengkapi nama lengkap dan NIS terlebih dahulu.');
       return;
     }
-    const requiresToken =
-      Boolean(publicConfig?.requireSessionCode) && !publicConfig?.freePracticeActive;
+    const requiresToken = Boolean(publicConfig.requireSessionCode) && !freePracticeActive;
     if (requiresToken && !sessionCodeInput.trim()) {
       setFormError('Masukkan kode sesi / token ujian yang diberikan proktor.');
       return;
@@ -211,37 +274,38 @@ export default function App() {
     setFormError('');
     setStudentSubmitting(true);
     try {
-      const res = await fetch('/api/student/auth', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: name.trim(),
-          nis: nis.trim(),
-          sessionCode: sessionCodeInput.trim(),
-        }),
+      const result = await verifyStudentExamEntry({
+        user: currentUser,
+        name: name.trim(),
+        nis: nis.trim(),
+        sessionCode: sessionCodeInput.trim(),
+        publicConfig,
       });
-      const data = await res.json();
-      if (!res.ok) {
-        setFormError(data.error || 'Gagal memverifikasi peserta.');
+      if (!result.ok) {
+        setFormError(result.error || 'Gagal memverifikasi peserta.');
         return;
       }
 
       unlockAudio();
-      const verifiedName = String(data.studentName || name.trim());
-      const verifiedNis = String(data.nis || nis.trim());
+      const verifiedName = String(result.studentName || name.trim());
+      const verifiedNis = String(result.nis || nis.trim());
       setName(verifiedName);
       setNis(verifiedNis);
       writeLocalDraft(LOGIN_DRAFT_KEYS.studentName, verifiedName);
       writeLocalDraft(LOGIN_DRAFT_KEYS.studentNis, verifiedNis);
       writeLocalDraft(LOGIN_DRAFT_KEYS.studentSessionCode, sessionCodeInput.trim());
-      sessionStorage.setItem('cbt_active_student_id', String(data.studentId));
+      sessionStorage.setItem('cbt_active_student_id', String(result.studentId || currentUser.uid));
       sessionStorage.setItem('cbt_auto_join', '1');
       if (document.documentElement.requestFullscreen) {
         document.documentElement.requestFullscreen().catch(() => {});
       }
       navigateRole('student');
-    } catch {
-      setFormError('Tidak dapat terhubung ke server CBT. Periksa jaringan Anda.');
+    } catch (err) {
+      setFormError(
+        err instanceof Error
+          ? err.message
+          : 'Tidak dapat terhubung ke database CBT. Periksa jaringan Anda.'
+      );
     } finally {
       setStudentSubmitting(false);
     }
@@ -249,6 +313,10 @@ export default function App() {
 
   const handleProctorLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!currentUser) {
+      setFormError('Masuk dengan akun Google Guru/Proktor terlebih dahulu.');
+      return;
+    }
     if (!proctorPin.trim()) {
       setFormError('Masukkan PIN Guru / Proktor terlebih dahulu.');
       return;
@@ -256,17 +324,13 @@ export default function App() {
     setFormError('');
     setProctorSubmitting(true);
     try {
-      const res = await fetch('/api/proctor/auth', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          username: proctorUsername.trim(),
-          pin: proctorPin.trim(),
-        }),
-      });
-      const data = await res.json();
+      const res = await verifyProctorPinAccess(
+        currentUser,
+        proctorUsername.trim(),
+        proctorPin.trim()
+      );
       if (!res.ok) {
-        setFormError(data.error || 'PIN Proktor / Guru tidak valid.');
+        setFormError(res.error || 'PIN atau izin Proktor / Guru tidak valid.');
         return;
       }
       unlockAudio();
@@ -275,7 +339,7 @@ export default function App() {
       setProctorPin('');
       navigateRole('proctor');
     } catch {
-      setFormError('Gagal menghubungi server autentikasi proktor.');
+      setFormError('Gagal menghubungi layanan autentikasi Firestore.');
     } finally {
       setProctorSubmitting(false);
     }
@@ -292,7 +356,17 @@ export default function App() {
   }
 
   if (role === 'proctor') {
-    if (!proctorAuthed) {
+    if (!authReady) {
+      return (
+        <div className="min-h-screen bg-[#F7F8FC] dark:bg-slate-950 flex items-center justify-center p-4">
+          <div className="px-5 py-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl text-xs font-medium text-slate-600 dark:text-slate-300 shadow-xs">
+            Memeriksa sesi autentikasi Google &amp; Firestore...
+          </div>
+        </div>
+      );
+    }
+
+    if (!currentUser || !isUserAdmin || !proctorAuthed) {
       return (
         <div className="min-h-screen bg-gradient-to-br from-[#F7F8FC] via-indigo-50/40 to-sky-50/40 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 flex flex-col">
           <header className="px-6 h-14 flex items-center justify-between max-w-5xl w-full mx-auto">
@@ -300,7 +374,7 @@ export default function App() {
               <span className="w-8 h-8 rounded-xl bg-indigo-600 text-white inline-flex items-center justify-center shadow-xs">
                 <GraduationCap className="w-4 h-4" />
               </span>
-              CBT Online
+              CBT Online · {publicConfig.schoolName || 'SD Pedak'}
             </span>
             <ThemeToggleButton isDark={isDark} onToggle={toggleDarkMode} showLabel />
           </header>
@@ -319,7 +393,7 @@ export default function App() {
                     Masuk Guru &amp; Proktor
                   </h1>
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                    Masukkan username dan PIN dashboard.
+                    Autentikasi Google dan PIN dashboard.
                   </p>
                 </div>
               </div>
@@ -330,33 +404,77 @@ export default function App() {
                 </div>
               )}
 
-              <div className="space-y-3.5">
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
-                    Username
-                  </label>
-                  <input
-                    type="text"
-                    value={proctorUsername}
-                    onChange={(e) => setProctorUsername(e.target.value)}
-                    placeholder="admin"
-                    className="w-full h-10 px-3.5 text-sm text-slate-900 dark:text-slate-100 bg-slate-50/80 dark:bg-slate-800/80 focus:bg-white dark:focus:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 rounded-xl focus:outline-none transition-all"
-                  />
-                </div>
+              {!currentUser ? (
+                <button
+                  type="button"
+                  disabled={googleSigningIn}
+                  onClick={handleGoogleSignIn}
+                  className="w-full h-11 inline-flex items-center justify-center gap-2.5 px-4 text-xs font-semibold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-xl transition-colors shadow-2xs"
+                >
+                  <GoogleBadge />
+                  {googleSigningIn ? 'Menghubungkan Google...' : 'Masuk dengan Akun Google'}
+                </button>
+              ) : (
+                <div className="space-y-3.5">
+                  <div className="px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                        Akun Google Terhubung
+                      </p>
+                      <p className="text-xs font-semibold text-slate-800 dark:text-slate-100 truncate">
+                        {currentUser.email}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleSwitchGoogleAccount}
+                      className="text-[11px] font-medium text-indigo-600 dark:text-indigo-400 hover:underline shrink-0"
+                    >
+                      Ganti
+                    </button>
+                  </div>
 
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
-                    PIN Proktor / Admin
-                  </label>
-                  <input
-                    type="password"
-                    value={proctorPin}
-                    onChange={(e) => setProctorPin(e.target.value)}
-                    placeholder="Masukkan PIN"
-                    className="w-full h-10 px-3.5 text-sm font-mono text-slate-900 dark:text-slate-100 bg-slate-50/80 dark:bg-slate-800/80 focus:bg-white dark:focus:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 rounded-xl focus:outline-none transition-all"
-                  />
+                  {!isUserAdmin ? (
+                    <div className="px-3.5 py-3 bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800/70 rounded-xl text-xs text-amber-800 dark:text-amber-300 space-y-1">
+                      <p className="font-semibold flex items-center gap-1.5">
+                        <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
+                        Bukan Akun Proktor Terdaftar
+                      </p>
+                      <p className="text-[11px] leading-relaxed">
+                        Masuk dengan email admin ({BOOTSTRAPPED_ADMIN_EMAIL}) atau minta admin menambahkan email Anda di menu Manajemen Akun.
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      <div>
+                        <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                          Username
+                        </label>
+                        <input
+                          type="text"
+                          value={proctorUsername}
+                          onChange={(e) => setProctorUsername(e.target.value)}
+                          placeholder="admin"
+                          className="w-full h-10 px-3.5 text-sm text-slate-900 dark:text-slate-100 bg-slate-50/80 dark:bg-slate-800/80 focus:bg-white dark:focus:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 rounded-xl focus:outline-none transition-all"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                          PIN Proktor / Admin
+                        </label>
+                        <input
+                          type="password"
+                          value={proctorPin}
+                          onChange={(e) => setProctorPin(e.target.value)}
+                          placeholder="PIN bawaan: 123456"
+                          className="w-full h-10 px-3.5 text-sm font-mono text-slate-900 dark:text-slate-100 bg-slate-50/80 dark:bg-slate-800/80 focus:bg-white dark:focus:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 rounded-xl focus:outline-none transition-all"
+                        />
+                      </div>
+                    </>
+                  )}
                 </div>
-              </div>
+              )}
 
               <div className="flex items-center gap-2 pt-1">
                 <button
@@ -366,14 +484,16 @@ export default function App() {
                 >
                   Kembali
                 </button>
-                <button
-                  type="submit"
-                  disabled={proctorSubmitting}
-                  className="flex-1 h-10 inline-flex items-center justify-center gap-2 px-4 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 rounded-xl transition-colors whitespace-nowrap shadow-xs"
-                >
-                  {proctorSubmitting ? 'Memverifikasi...' : 'Masuk Dashboard'}
-                  <ArrowRight className="w-4 h-4" />
-                </button>
+                {currentUser && isUserAdmin && (
+                  <button
+                    type="submit"
+                    disabled={proctorSubmitting}
+                    className="flex-1 h-10 inline-flex items-center justify-center gap-2 px-4 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 rounded-xl transition-colors whitespace-nowrap shadow-xs"
+                  >
+                    {proctorSubmitting ? 'Memverifikasi...' : 'Masuk Dashboard'}
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                )}
               </div>
             </form>
           </div>
@@ -409,8 +529,8 @@ export default function App() {
           <span
             title={
               serverOnline
-                ? 'Koneksi ke server CBT terhubung'
-                : 'Koneksi ke server CBT terputus'
+                ? 'Koneksi ke Firebase Firestore terhubung'
+                : 'Koneksi ke Firebase Firestore terputus'
             }
             className={`h-8 inline-flex items-center gap-1.5 px-2.5 text-xs font-medium rounded-xl border transition-colors ${
               serverOnline
@@ -451,11 +571,11 @@ export default function App() {
           {/* Concise Exam Header */}
           <div className="text-center space-y-1.5">
             <p className="text-xs font-semibold text-indigo-600 dark:text-indigo-400">
-              {publicConfig?.schoolName || 'Tryout TKA SD'} ·{' '}
-              {publicConfig?.roomName || 'Ruang CBT Online'}
+              {publicConfig.schoolName || 'SD Pedak'} ·{' '}
+              {publicConfig.roomName || 'Ruang CBT Online'}
             </p>
             <h1 className="text-2xl md:text-[28px] font-bold tracking-tight text-slate-900 dark:text-slate-100 text-balance leading-snug">
-              {publicConfig?.title || 'Tryout TKA SD Online'}
+              {publicConfig.title || 'Tryout TKA SD Online'}
             </h1>
             <p className="text-xs md:text-sm text-slate-500 dark:text-slate-400">
               Pilih peran Anda untuk masuk ke ujian atau ruang proktor.
@@ -504,9 +624,53 @@ export default function App() {
               </div>
             )}
 
-            {entryTab === 'student' ? (
+            {/* Google Auth Bar */}
+            {!authReady ? (
+              <div className="px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 rounded-xl text-xs text-slate-500 text-center">
+                Memeriksa sesi autentikasi Google...
+              </div>
+            ) : !currentUser ? (
+              <div className="space-y-3">
+                <div className="px-3.5 py-2.5 bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-800/60 rounded-xl text-xs text-indigo-800 dark:text-indigo-200 leading-relaxed">
+                  Masuk dengan akun Google untuk mengamankan sesi ujian dan sinkronisasi real-time Firebase.
+                </div>
+                <button
+                  type="button"
+                  disabled={googleSigningIn}
+                  onClick={handleGoogleSignIn}
+                  className="w-full h-11 inline-flex items-center justify-center gap-2.5 px-4 text-sm font-semibold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-xl transition-colors shadow-2xs"
+                >
+                  <GoogleBadge />
+                  {googleSigningIn ? 'Menghubungkan Google...' : 'Masuk dengan Google'}
+                </button>
+              </div>
+            ) : (
+              <div className="px-3.5 py-2.5 bg-emerald-50/60 dark:bg-emerald-950/40 border border-emerald-200/80 dark:border-emerald-800/60 rounded-xl flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-[11px] text-emerald-700 dark:text-emerald-300 font-medium">
+                      Terhubung dengan Google
+                    </p>
+                    <p className="text-xs font-semibold text-slate-900 dark:text-slate-100 truncate">
+                      {currentUser.email}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSwitchGoogleAccount}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium text-slate-600 dark:text-slate-300 hover:text-rose-700 dark:hover:text-rose-300 bg-white/80 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg transition-colors shrink-0"
+                >
+                  <LogOut className="w-3 h-3" />
+                  Ganti
+                </button>
+              </div>
+            )}
+
+            {currentUser && entryTab === 'student' && (
               <form onSubmit={handleStudentStart} className="space-y-4">
-                {publicConfig?.freePracticeActive && (
+                {freePracticeActive && (
                   <div className="px-3.5 py-2.5 bg-emerald-50/80 dark:bg-emerald-950/50 border border-emerald-200/80 dark:border-emerald-800/70 rounded-xl space-y-0.5">
                     <p className="text-xs font-semibold text-emerald-800 dark:text-emerald-300">
                       Mode Latihan Bebas Aktif
@@ -546,7 +710,7 @@ export default function App() {
                   />
                 </div>
 
-                {publicConfig?.requireSessionCode && !publicConfig?.freePracticeActive && (
+                {publicConfig.requireSessionCode && !freePracticeActive && (
                   <div>
                     <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
                       Token / Kode Sesi
@@ -568,91 +732,128 @@ export default function App() {
                 >
                   {studentSubmitting
                     ? 'Memverifikasi...'
-                    : publicConfig?.freePracticeActive
+                    : freePracticeActive
                       ? 'Mulai Latihan Bebas'
                       : 'Mulai Ujian'}
                   <ArrowRight className="w-4 h-4" />
                 </button>
               </form>
-            ) : proctorAuthed ? (
-              <div className="space-y-3">
-                <div className="p-4 bg-emerald-50/70 dark:bg-emerald-950/50 border border-emerald-200/80 dark:border-emerald-800/70 rounded-2xl space-y-1">
-                  <p className="text-xs font-semibold text-emerald-800 dark:text-emerald-300">
-                    Sesi Proktor Aktif
+            )}
+
+            {currentUser && entryTab === 'proctor' && (
+              !isUserAdmin ? (
+                <div className="px-4 py-3.5 bg-amber-50/80 dark:bg-amber-950/50 border border-amber-200/80 dark:border-amber-800/70 rounded-2xl space-y-1.5">
+                  <p className="text-xs font-semibold text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
+                    <ShieldAlert className="w-4 h-4 shrink-0" />
+                    Akses Guru / Proktor Belum Diaktifkan
                   </p>
-                  <p className="text-xs text-emerald-700 dark:text-emerald-400 leading-relaxed">
-                    Anda sudah login sebagai Guru / Proktor.
+                  <p className="text-xs text-amber-700 dark:text-amber-400 leading-relaxed">
+                    Email <span className="font-semibold">{currentUser.email}</span> belum memiliki hak proktor. Gunakan akun admin ({BOOTSTRAPPED_ADMIN_EMAIL}) atau tambahkan email ini di menu Manajemen Akun.
                   </p>
                 </div>
+              ) : proctorAuthed ? (
+                <div className="space-y-3">
+                  <div className="p-4 bg-emerald-50/70 dark:bg-emerald-950/50 border border-emerald-200/80 dark:border-emerald-800/70 rounded-2xl space-y-1">
+                    <p className="text-xs font-semibold text-emerald-800 dark:text-emerald-300">
+                      Sesi Proktor Aktif
+                    </p>
+                    <p className="text-xs text-emerald-700 dark:text-emerald-400 leading-relaxed">
+                      Anda sudah terautentikasi sebagai Guru / Proktor.
+                    </p>
+                  </div>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    unlockAudio();
-                    navigateRole('proctor');
-                  }}
-                  className="w-full h-11 inline-flex items-center justify-center gap-2 px-5 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-colors whitespace-nowrap shadow-xs"
-                >
-                  Buka Dashboard Proktor
-                  <ArrowRight className="w-4 h-4" />
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      unlockAudio();
+                      navigateRole('proctor');
+                    }}
+                    className="w-full h-11 inline-flex items-center justify-center gap-2 px-5 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-colors whitespace-nowrap shadow-xs"
+                  >
+                    Buka Dashboard Proktor
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    sessionStorage.removeItem('cbt_proctor_authed');
-                    setProctorAuthed(false);
-                  }}
-                  className="w-full h-9 inline-flex items-center justify-center text-xs font-medium text-slate-500 dark:text-slate-400 hover:text-rose-700 dark:hover:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl transition-colors"
-                >
-                  Ganti Akun Proktor
-                </button>
-              </div>
-            ) : (
-              <form onSubmit={handleProctorLogin} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
-                    Username Guru / Admin
-                  </label>
-                  <input
-                    type="text"
-                    value={proctorUsername}
-                    onChange={(e) => setProctorUsername(e.target.value)}
-                    placeholder="admin"
-                    className="w-full h-11 px-3.5 text-sm text-slate-900 dark:text-slate-100 bg-slate-50/80 dark:bg-slate-800/80 focus:bg-white dark:focus:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 rounded-xl focus:outline-none transition-all"
-                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      sessionStorage.removeItem('cbt_proctor_authed');
+                      setProctorAuthed(false);
+                    }}
+                    className="w-full h-9 inline-flex items-center justify-center text-xs font-medium text-slate-500 dark:text-slate-400 hover:text-rose-700 dark:hover:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl transition-colors"
+                  >
+                    Kunci Ulang PIN Proktor
+                  </button>
                 </div>
+              ) : (
+                <form onSubmit={handleProctorLogin} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                      Username Guru / Admin
+                    </label>
+                    <input
+                      type="text"
+                      value={proctorUsername}
+                      onChange={(e) => setProctorUsername(e.target.value)}
+                      placeholder="admin"
+                      className="w-full h-11 px-3.5 text-sm text-slate-900 dark:text-slate-100 bg-slate-50/80 dark:bg-slate-800/80 focus:bg-white dark:focus:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 rounded-xl focus:outline-none transition-all"
+                    />
+                  </div>
 
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
-                    PIN Proktor
-                  </label>
-                  <input
-                    type="password"
-                    value={proctorPin}
-                    onChange={(e) => setProctorPin(e.target.value)}
-                    placeholder="PIN bawaan: 123456"
-                    className="w-full h-11 px-3.5 text-sm font-mono text-slate-900 dark:text-slate-100 bg-slate-50/80 dark:bg-slate-800/80 focus:bg-white dark:focus:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 rounded-xl focus:outline-none transition-all"
-                  />
-                </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                      PIN Proktor
+                    </label>
+                    <input
+                      type="password"
+                      value={proctorPin}
+                      onChange={(e) => setProctorPin(e.target.value)}
+                      placeholder="PIN bawaan: 123456"
+                      className="w-full h-11 px-3.5 text-sm font-mono text-slate-900 dark:text-slate-100 bg-slate-50/80 dark:bg-slate-800/80 focus:bg-white dark:focus:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 rounded-xl focus:outline-none transition-all"
+                    />
+                  </div>
 
-                <button
-                  type="submit"
-                  disabled={proctorSubmitting}
-                  className="w-full h-11 inline-flex items-center justify-center gap-2 px-5 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 rounded-xl transition-colors whitespace-nowrap shadow-xs mt-1"
-                >
-                  {proctorSubmitting ? 'Memverifikasi...' : 'Masuk Dashboard'}
-                  <ArrowRight className="w-4 h-4" />
-                </button>
-              </form>
+                  <button
+                    type="submit"
+                    disabled={proctorSubmitting}
+                    className="w-full h-11 inline-flex items-center justify-center gap-2 px-5 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 rounded-xl transition-colors whitespace-nowrap shadow-xs mt-1"
+                  >
+                    {proctorSubmitting ? 'Memverifikasi...' : 'Masuk Dashboard'}
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                </form>
+              )
             )}
           </div>
 
           <p className="text-center text-[11px] text-slate-400 dark:text-slate-500">
-            Asesmen TKA SD · Pilihan Ganda · PG Kompleks · MCMA
+            Asesmen TKA SD · SD Pedak · Pilihan Ganda · PG Kompleks · MCMA
           </p>
         </div>
       </main>
     </div>
+  );
+}
+
+function GoogleBadge() {
+  return (
+    <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        fill="#4285F4"
+        d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17Z"
+      />
+      <path
+        fill="#34A853"
+        d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.11-6.72-4.96H1.29v3.14C3.26 21.3 7.31 24 12 24Z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M5.28 14.24c-.24-.72-.38-1.49-.38-2.24s.14-1.52.38-2.24V6.62H1.29C.47 8.24 0 10.06 0 12s.47 3.76 1.29 5.38l3.99-3.14Z"
+      />
+      <path
+        fill="#EA4335"
+        d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.62l3.99 3.14c.95-2.85 3.6-4.96 6.72-4.96Z"
+      />
+    </svg>
   );
 }

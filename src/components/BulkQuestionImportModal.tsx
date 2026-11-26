@@ -18,12 +18,19 @@ import {
   QuestionStudentPreview,
 } from './QuestionStudentPreview';
 import {
+  activateQuestionBankInFirestore,
+  createQuestionBankInFirestore,
+  DEFAULT_ACTIVE_BANK_ID,
+  DEFAULT_PUBLIC_EXAM_CONFIG,
+  importQuestionsBatchInFirestore,
+} from '../lib/firebaseCbt';
+import {
   downloadQuestionImportTemplate,
   parseQuestionDelimitedText,
   parseQuestionSpreadsheetFile,
   type BulkImportParseResult,
 } from '../lib/questionImport';
-import type { Question, QuestionBank } from '../types/cbt';
+import type { ExamConfig, Question, QuestionBank, StudentSession } from '../types/cbt';
 import {
   QUESTION_TYPE_LABELS,
   TKA_SD_OFFICIAL_TYPES,
@@ -32,6 +39,9 @@ import {
 interface BulkQuestionImportModalProps {
   questionBanks: QuestionBank[];
   defaultBankId: string | null;
+  allQuestions?: Question[];
+  examConfig?: ExamConfig | null;
+  sessions?: StudentSession[];
   onImportComplete: () => void;
   onClose: () => void;
 }
@@ -39,6 +49,9 @@ interface BulkQuestionImportModalProps {
 export const BulkQuestionImportModal: React.FC<BulkQuestionImportModalProps> = ({
   questionBanks,
   defaultBankId,
+  allQuestions = [],
+  examConfig,
+  sessions = [],
   onImportComplete,
   onClose,
 }) => {
@@ -127,7 +140,11 @@ export const BulkQuestionImportModal: React.FC<BulkQuestionImportModalProps> = (
     setSubmitting(true);
 
     try {
-      let finalBankId = targetBankId;
+      let finalBankId = targetBankId || DEFAULT_ACTIVE_BANK_ID;
+      let activeBankId =
+        questionBanks.find((b) => b.isActive)?.id ||
+        questionBanks[0]?.id ||
+        DEFAULT_ACTIVE_BANK_ID;
 
       if (destinationMode === 'new') {
         if (!newBankForm.code.trim() || !newBankForm.name.trim()) {
@@ -135,45 +152,34 @@ export const BulkQuestionImportModal: React.FC<BulkQuestionImportModalProps> = (
           setSubmitting(false);
           return;
         }
-        const createRes = await fetch('/api/question-banks', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            code: newBankForm.code.trim(),
-            name: newBankForm.name.trim(),
-            subject: newBankForm.subject.trim() || 'Umum',
-            targetClass: newBankForm.targetClass.trim() || 'KELAS 6 A',
-            targetCounts: parseResult?.byType,
-          }),
+        const createdBank = await createQuestionBankInFirestore({
+          code: newBankForm.code.trim(),
+          name: newBankForm.name.trim(),
+          subject: newBankForm.subject.trim() || 'Umum',
+          targetClass: newBankForm.targetClass.trim() || 'KELAS 6 A',
+          targetCounts: parseResult?.byType,
         });
-        if (!createRes.ok) {
-          const errBody = await createRes.json().catch(() => ({}));
-          throw new Error(errBody.error || 'Gagal membuat bank soal baru.');
-        }
-        const createdBank = (await createRes.json()) as QuestionBank;
         finalBankId = createdBank.id;
 
         if (newBankForm.activateNow) {
-          await fetch(`/api/question-banks/${finalBankId}/activate`, {
-            method: 'POST',
+          activeBankId = finalBankId;
+          await activateQuestionBankInFirestore({
+            bankId: finalBankId,
+            banks: [...questionBanks, createdBank],
+            questions: allQuestions,
+            examConfig: examConfig || DEFAULT_PUBLIC_EXAM_CONFIG,
+            sessions,
           });
         }
       }
 
-      const importRes = await fetch('/api/questions/import', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          bankId: finalBankId,
-          replaceExisting: destinationMode === 'existing' && replaceExisting,
-          questions: validQuestions.map((q) => ({ ...q, bankId: finalBankId })),
-        }),
+      await importQuestionsBatchInFirestore({
+        bankId: finalBankId,
+        activeBankId,
+        replaceExisting: destinationMode === 'existing' && replaceExisting,
+        existingQuestionsInBank: allQuestions.filter((q) => q.bankId === finalBankId),
+        questions: validQuestions.map((q) => ({ ...q, bankId: finalBankId })),
       });
-
-      if (!importRes.ok) {
-        const errBody = await importRes.json().catch(() => ({}));
-        throw new Error(errBody.error || 'Gagal mengimpor butir soal ke server.');
-      }
 
       onImportComplete();
       onClose();

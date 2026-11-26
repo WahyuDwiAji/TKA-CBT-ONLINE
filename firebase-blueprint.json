@@ -1,0 +1,400 @@
+{
+  "entities": {
+    "PublicExamConfig": {
+      "title": "PublicExamConfig",
+      "description": "Konfigurasi publik ujian CBT SD Pedak tanpa data rahasia atau PII",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "maxLength": 200 },
+        "subtitle": { "type": "string", "maxLength": 400 },
+        "schoolName": { "type": "string", "maxLength": 120 },
+        "roomName": { "type": "string", "maxLength": 120 },
+        "activeBankId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "durationMinutes": { "type": "number" },
+        "kkm": { "type": "number" },
+        "antiCheatEnabled": { "type": "boolean" },
+        "globalSuspended": { "type": "boolean" },
+        "maxViolationsBeforeLock": { "type": "number" },
+        "violationPolicy": { "type": "string", "enum": ["lock", "force_submit"] },
+        "shuffleQuestions": { "type": "boolean" },
+        "shuffleOptions": { "type": "boolean" },
+        "preventBackNavigation": { "type": "boolean" },
+        "negativeMarking": { "type": "boolean" },
+        "negativePenaltyRatio": { "type": "number" },
+        "watermarkEnabled": { "type": "boolean" },
+        "showResultToStudent": { "type": "boolean" },
+        "requireRegisteredNis": { "type": "boolean" },
+        "requireSessionCode": { "type": "boolean" },
+        "freePracticeEnabled": { "type": "boolean" },
+        "freePracticeScheduled": { "type": "boolean" },
+        "freePracticeStartAt": { "type": "string", "maxLength": 64 },
+        "freePracticeEndAt": { "type": "string", "maxLength": 64 },
+        "scheduleDate": { "type": "string", "maxLength": 32 },
+        "startTime": { "type": "string", "maxLength": 16 },
+        "endTime": { "type": "string", "maxLength": 16 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "title", "schoolName", "durationMinutes", "antiCheatEnabled", "globalSuspended", "maxViolationsBeforeLock", "updatedAt"]
+    },
+    "PrivateExamConfig": {
+      "title": "PrivateExamConfig",
+      "description": "Konfigurasi rahasia ujian (PIN Proktor dan Kode Sesi aktif)",
+      "type": "object",
+      "properties": {
+        "proctorPin": { "type": "string", "maxLength": 64 },
+        "sessionCode": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["proctorPin", "sessionCode", "updatedAt"]
+    },
+    "SessionCodeGate": {
+      "title": "SessionCodeGate",
+      "description": "Dokumen verifikasi kode sesi tanpa mengekspos daftar kode",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string", "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "active": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["code", "active", "updatedAt"]
+    },
+    "NisRegistryEntry": {
+      "title": "NisRegistryEntry",
+      "description": "Indeks verifikasi NIS tanpa data kontak/PII",
+      "type": "object",
+      "properties": {
+        "nis": { "type": "string", "maxLength": 64 },
+        "name": { "type": "string", "maxLength": 120 },
+        "registered": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["nis", "name", "registered", "updatedAt"]
+    },
+    "QuestionBank": {
+      "title": "QuestionBank",
+      "description": "Paket bank soal tryout TKA SD",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "code": { "type": "string", "maxLength": 64 },
+        "name": { "type": "string", "maxLength": 200 },
+        "subject": { "type": "string", "maxLength": 120 },
+        "targetClass": { "type": "string", "maxLength": 80 },
+        "isActive": { "type": "boolean" },
+        "targetCounts": { "type": "object" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "code", "name", "subject", "targetClass", "isActive", "updatedAt"]
+    },
+    "PublicQuestion": {
+      "title": "PublicQuestion",
+      "description": "Butir soal ujian tanpa kunci jawaban dan tanpa pembahasan",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "bankId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "isActiveBank": { "type": "boolean" },
+        "type": { "type": "string", "enum": ["multiple_choice", "complex_multiple_choice", "mcma", "matching", "true_false", "essay"] },
+        "subject": { "type": "string", "maxLength": 120 },
+        "topic": { "type": "string", "maxLength": 120 },
+        "difficulty": { "type": "string", "enum": ["easy", "medium", "hard"] },
+        "prompt": { "type": "string", "maxLength": 15000 },
+        "imageUrl": { "type": "string", "maxLength": 350000 },
+        "imageCaption": { "type": "string", "maxLength": 300 },
+        "points": { "type": "number" },
+        "direction": { "type": "string", "enum": ["ltr", "rtl", "auto"] },
+        "scoringMode": { "type": "string", "enum": ["partial", "exact"] },
+        "options": { "type": "array" },
+        "pairs": { "type": "array" },
+        "statements": { "type": "array" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "bankId", "isActiveBank", "type", "subject", "prompt", "points", "updatedAt"]
+    },
+    "QuestionKey": {
+      "title": "QuestionKey",
+      "description": "Kunci jawaban dan pembahasan soal yang terkunci selama ujian aktif",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "bankId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "type": { "type": "string", "enum": ["multiple_choice", "complex_multiple_choice", "mcma", "matching", "true_false", "essay"] },
+        "correctOptionId": { "type": "string", "maxLength": 64 },
+        "correctOptionIds": { "type": "array" },
+        "statementKeys": { "type": "object" },
+        "expectedKeywords": { "type": "array" },
+        "sampleAnswer": { "type": "string", "maxLength": 10000 },
+        "explanation": { "type": "string", "maxLength": 10000 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "bankId", "type", "updatedAt"]
+    },
+    "ExamSession": {
+      "title": "ExamSession",
+      "description": "Sesi ujian aktif peserta CBT",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerUid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "maxLength": 120 },
+        "nis": { "type": "string", "maxLength": 64 },
+        "status": { "type": "string", "enum": ["active", "suspended", "violation_locked", "force_stopped", "submitted"] },
+        "answers": { "type": "object" },
+        "doubtfulIds": { "type": "array" },
+        "violations": { "type": "array" },
+        "connected": { "type": "boolean" },
+        "startedAt": { "type": "string", "maxLength": 64 },
+        "lastActiveAt": { "type": "string", "maxLength": 64 },
+        "endedAt": { "type": "string", "maxLength": 64 },
+        "remainingSeconds": { "type": "number" },
+        "gradeSummary": { "type": "object" },
+        "manualEssayOverrides": { "type": "object" },
+        "suspendReason": { "type": "string", "maxLength": 500 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "ownerUid", "name", "nis", "status", "answers", "doubtfulIds", "violations", "connected", "startedAt", "lastActiveAt", "remainingSeconds", "createdAt", "updatedAt"]
+    },
+    "ViolationRecord": {
+      "title": "ViolationRecord",
+      "description": "Catatan pelanggaran anti-curang peserta",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerUid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "studentId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "studentName": { "type": "string", "maxLength": 120 },
+        "nis": { "type": "string", "maxLength": 64 },
+        "reason": { "type": "string", "maxLength": 500 },
+        "timestamp": { "type": "string", "maxLength": 64 },
+        "resolved": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "ownerUid", "studentId", "studentName", "nis", "reason", "timestamp", "resolved", "createdAt"]
+    },
+    "AuditLogRecord": {
+      "title": "AuditLogRecord",
+      "description": "Log audit aktivitas ujian dan tindakan proktor",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerUid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "timestamp": { "type": "string", "maxLength": 64 },
+        "actor": { "type": "string", "maxLength": 120 },
+        "action": { "type": "string", "enum": ["join", "resume", "violation_warning", "violation_lock", "unlock", "add_time", "suspend", "force_stop", "submit", "reset", "announcement", "grade_override", "regrade"] },
+        "studentId": { "type": "string", "maxLength": 128 },
+        "studentName": { "type": "string", "maxLength": 120 },
+        "nis": { "type": "string", "maxLength": 64 },
+        "detail": { "type": "string", "maxLength": 600 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "ownerUid", "timestamp", "actor", "action", "detail", "createdAt"]
+    },
+    "Announcement": {
+      "title": "Announcement",
+      "description": "Pengumuman ruang ujian dari proktor",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "maxLength": 200 },
+        "content": { "type": "string", "maxLength": 2000 },
+        "author": { "type": "string", "maxLength": 120 },
+        "published": { "type": "boolean" },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "title", "content", "author", "published", "createdAt"]
+    },
+    "StudentMaster": {
+      "title": "StudentMaster",
+      "description": "Data master peserta (mengandung PII, khusus admin/proktor)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "maxLength": 120 },
+        "nis": { "type": "string", "maxLength": 64 },
+        "kelas": { "type": "string", "maxLength": 64 },
+        "phone": { "type": "string", "maxLength": 40 }
+      },
+      "required": ["id", "name", "nis", "kelas", "phone"]
+    },
+    "TeacherMaster": {
+      "title": "TeacherMaster",
+      "description": "Data master guru (mengandung PII, khusus admin/proktor)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "maxLength": 120 },
+        "nip": { "type": "string", "maxLength": 64 },
+        "subjects": { "type": "array" },
+        "classes": { "type": "array" },
+        "phone": { "type": "string", "maxLength": 40 }
+      },
+      "required": ["id", "name", "nip", "subjects", "classes", "phone"]
+    },
+    "ClassRoom": {
+      "title": "ClassRoom",
+      "description": "Data master kelas",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "maxLength": 80 },
+        "level": { "type": "string", "maxLength": 80 },
+        "homeroomTeacher": { "type": "string", "maxLength": 120 }
+      },
+      "required": ["id", "name", "level", "homeroomTeacher"]
+    },
+    "SubjectMaster": {
+      "title": "SubjectMaster",
+      "description": "Data master mata pelajaran",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "code": { "type": "string", "maxLength": 40 },
+        "name": { "type": "string", "maxLength": 120 },
+        "category": { "type": "string", "maxLength": 120 }
+      },
+      "required": ["id", "code", "name", "category"]
+    },
+    "ElearningMaterial": {
+      "title": "ElearningMaterial",
+      "description": "Materi pembelajaran kisi-kisi TKA SD",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "maxLength": 200 },
+        "subject": { "type": "string", "maxLength": 120 },
+        "targetClass": { "type": "string", "maxLength": 80 },
+        "summary": { "type": "string", "maxLength": 500 },
+        "content": { "type": "string", "maxLength": 20000 },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "title", "subject", "targetClass", "summary", "content", "createdAt"]
+    },
+    "ProctorAccount": {
+      "title": "ProctorAccount",
+      "description": "Akun pengelola ruang proktor & guru",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "maxLength": 120 },
+        "username": { "type": "string", "maxLength": 120 },
+        "role": { "type": "string", "enum": ["admin", "guru", "proktor"] },
+        "active": { "type": "boolean" }
+      },
+      "required": ["id", "name", "username", "role", "active"]
+    },
+    "AdminRecord": {
+      "title": "AdminRecord",
+      "description": "Daftar UID admin terotorisasi",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "maxLength": 128 },
+        "role": { "type": "string", "enum": ["admin", "guru", "proktor"] }
+      },
+      "required": ["uid", "role"]
+    },
+    "AdminEmailRecord": {
+      "title": "AdminEmailRecord",
+      "description": "Daftar email Google admin/proktor yang diizinkan",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "maxLength": 128 },
+        "role": { "type": "string", "enum": ["admin", "guru", "proktor"] },
+        "active": { "type": "boolean" }
+      },
+      "required": ["email", "role", "active"]
+    },
+    "ConnectionProbe": {
+      "title": "ConnectionProbe",
+      "description": "Dokumen probe konektivitas Firestore",
+      "type": "object",
+      "properties": {
+        "ok": { "type": "boolean" }
+      }
+    }
+  },
+  "firestore": {
+    "/publicConfig/{docId}": {
+      "schema": { "$ref": "#/entities/PublicExamConfig" },
+      "description": "Konfigurasi publik ujian pada /publicConfig/exam"
+    },
+    "/privateConfig/{docId}": {
+      "schema": { "$ref": "#/entities/PrivateExamConfig" },
+      "description": "Konfigurasi rahasia ujian pada /privateConfig/exam"
+    },
+    "/sessionCodes/{codeId}": {
+      "schema": { "$ref": "#/entities/SessionCodeGate" },
+      "description": "Indeks kode sesi aktif untuk validasi token siswa"
+    },
+    "/nisRegistry/{nisId}": {
+      "schema": { "$ref": "#/entities/NisRegistryEntry" },
+      "description": "Indeks verifikasi NIS peserta"
+    },
+    "/questionBanks/{bankId}": {
+      "schema": { "$ref": "#/entities/QuestionBank" },
+      "description": "Daftar paket bank soal"
+    },
+    "/questions/{questionId}": {
+      "schema": { "$ref": "#/entities/PublicQuestion" },
+      "description": "Butir soal ujian tersanitasi (tanpa kunci)"
+    },
+    "/questionKeys/{questionId}": {
+      "schema": { "$ref": "#/entities/QuestionKey" },
+      "description": "Kunci jawaban dan pembahasan soal"
+    },
+    "/examSessions/{sessionId}": {
+      "schema": { "$ref": "#/entities/ExamSession" },
+      "description": "Sesi ujian peserta (docId = Firebase Auth UID)"
+    },
+    "/violations/{violationId}": {
+      "schema": { "$ref": "#/entities/ViolationRecord" },
+      "description": "Catatan pelanggaran anti-curang peserta"
+    },
+    "/auditLogs/{logId}": {
+      "schema": { "$ref": "#/entities/AuditLogRecord" },
+      "description": "Log audit aktivitas ujian"
+    },
+    "/announcements/{announcementId}": {
+      "schema": { "$ref": "#/entities/Announcement" },
+      "description": "Pengumuman langsung dari proktor"
+    },
+    "/masterStudents/{studentMasterId}": {
+      "schema": { "$ref": "#/entities/StudentMaster" },
+      "description": "Data induk peserta ujian"
+    },
+    "/masterTeachers/{teacherMasterId}": {
+      "schema": { "$ref": "#/entities/TeacherMaster" },
+      "description": "Data induk guru"
+    },
+    "/classes/{classId}": {
+      "schema": { "$ref": "#/entities/ClassRoom" },
+      "description": "Data induk kelas"
+    },
+    "/subjects/{subjectId}": {
+      "schema": { "$ref": "#/entities/SubjectMaster" },
+      "description": "Data induk mata pelajaran"
+    },
+    "/materials/{materialId}": {
+      "schema": { "$ref": "#/entities/ElearningMaterial" },
+      "description": "Materi pembelajaran e-learning"
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/ProctorAccount" },
+      "description": "Daftar akun proktor dan guru"
+    },
+    "/admins/{uid}": {
+      "schema": { "$ref": "#/entities/AdminRecord" },
+      "description": "UID admin terotorisasi"
+    },
+    "/adminEmails/{emailId}": {
+      "schema": { "$ref": "#/entities/AdminEmailRecord" },
+      "description": "Email Google proktor/guru yang diizinkan"
+    },
+    "/test/{docId}": {
+      "schema": { "$ref": "#/entities/ConnectionProbe" },
+      "description": "Dokumen uji koneksi Firestore pada /test/connection"
+    }
+  }
+}

@@ -95,7 +95,39 @@ import {
   parseTeachersSpreadsheetFile,
 } from '../lib/questionImport';
 import { playProctorAlert, unlockAudio } from '../lib/sound';
-import { createCbtSocket, type ManagedSocket } from '../lib/ws';
+import { auth, testConnection } from '../lib/firebase';
+import {
+  activateQuestionBankInFirestore,
+  assignQuestionsToBankInFirestore,
+  createAnnouncementInFirestore,
+  createClassRoomInFirestore,
+  createMaterialInFirestore,
+  createProctorUserInFirestore,
+  createQuestionBankInFirestore,
+  createSubjectInFirestore,
+  DEFAULT_ACTIVE_BANK_ID,
+  DEFAULT_PUBLIC_EXAM_CONFIG,
+  deleteAnnouncementInFirestore,
+  deleteClassRoomInFirestore,
+  deleteMasterStudentInFirestore,
+  deleteMasterTeacherInFirestore,
+  deleteMaterialInFirestore,
+  deleteProctorUserInFirestore,
+  deleteQuestionBankInFirestore,
+  deleteQuestionInFirestore,
+  deleteSubjectInFirestore,
+  ensureInitialSeedData,
+  executeProctorCommand,
+  importMasterStudentsInFirestore,
+  importMasterTeachersInFirestore,
+  saveMasterStudentInFirestore,
+  saveMasterTeacherInFirestore,
+  saveQuestionInFirestore,
+  subscribeProctorDashboardRealtime,
+  toggleProctorUserInFirestore,
+  updateExamConfigInFirestore,
+  updateQuestionWeightsInFirestore,
+} from '../lib/firebaseCbt';
 import type {
   Announcement,
   AuditLogEntry,
@@ -106,7 +138,6 @@ import type {
   QuestionBank,
   QuestionDifficulty,
   QuestionType,
-  ServerSnapshot,
   StudentAnswerValue,
   StudentMaster,
   StudentSession,
@@ -233,7 +264,7 @@ export const ProctorDashboard: React.FC<ProctorDashboardProps> = ({
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
 
-  const [wsConnected, setWsConnected] = useState(false);
+  const [firestoreConnected, setFirestoreConnected] = useState(false);
   const [examConfig, setExamConfig] = useState<ExamConfig | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [sessions, setSessions] = useState<StudentSession[]>([]);
@@ -339,8 +370,12 @@ export const ProctorDashboard: React.FC<ProctorDashboardProps> = ({
   const [userForm, setUserForm] = useState({ name: '', username: '', role: 'guru' as 'admin' | 'guru' | 'proktor' });
   const [annForm, setAnnForm] = useState({ title: '', content: '' });
 
-  const socketRef = useRef<ManagedSocket | null>(null);
   const soundEnabledRef = useRef(soundEnabled);
+  const examConfigRef = useRef<ExamConfig | null>(null);
+  const questionsRef = useRef<Question[]>([]);
+  const activeExamQuestionsRef = useRef<Question[]>([]);
+  const sessionsRef = useRef<StudentSession[]>([]);
+  const violationsRef = useRef<ViolationLog[]>([]);
 
   useEffect(() => {
     soundEnabledRef.current = soundEnabled;
@@ -352,75 +387,68 @@ export const ProctorDashboard: React.FC<ProctorDashboardProps> = ({
   }, []);
 
   useEffect(() => {
-    const sock = createCbtSocket({
-      onOpen: (ws) => {
-        ws.send(JSON.stringify({ type: 'proctor:join' }));
+    let active = true;
+    if (auth.currentUser) {
+      void ensureInitialSeedData().catch(() => {});
+    }
+    void testConnection().then((ok) => {
+      if (active && ok) setFirestoreConnected(true);
+    });
+
+    const unsub = subscribeProctorDashboardRealtime({
+      onConfig: (cfg) => {
+        if (!active) return;
+        setExamConfig(cfg);
+        setFirestoreConnected(true);
       },
-      onStatusChange: (connected) => setWsConnected(connected),
-      onMessage: (data) => {
-        if (data.type === 'state:snapshot') {
-          const snap = data.snapshot as ServerSnapshot;
-          setExamConfig(snap.examConfig);
-          setQuestions(snap.questions);
-          setSessions(snap.sessions);
-          setViolations(snap.recentViolations);
-          setMasterStudents(snap.masterStudents || []);
-          setMasterTeachers(snap.masterTeachers || []);
-          setClasses(snap.classes || []);
-          setSubjects(snap.subjects || []);
-          setQuestionBanks(snap.questionBanks || []);
-          setMaterials(snap.materials || []);
-          setUsers(snap.users || []);
-          setAnnouncements(snap.announcements || []);
-          setAuditLogs(snap.auditLogs || []);
-          return;
-        }
-        if (data.type === 'session:updated') {
-          const updated = data.session as StudentSession;
-          setSessions((prev) => {
-            const exists = prev.some((s) => s.id === updated.id);
-            if (!exists) return [updated, ...prev];
-            return prev.map((s) => (s.id === updated.id ? updated : s));
-          });
-          return;
-        }
-        if (data.type === 'violation:alert') {
-          const violation = data.violation as ViolationLog;
-          const updated = data.session as StudentSession;
-          setViolations((prev) => [violation, ...prev].slice(0, 50));
-          setLiveAlert(violation);
-          setSessions((prev) => {
-            const exists = prev.some((s) => s.id === updated.id);
-            if (!exists) return [updated, ...prev];
-            return prev.map((s) => (s.id === updated.id ? updated : s));
-          });
-          if (soundEnabledRef.current) {
-            playProctorAlert();
-          }
-          return;
-        }
-        if (data.type === 'exam:updated') {
-          setExamConfig(data.examConfig as ExamConfig);
-          return;
-        }
-        if (data.type === 'questions:updated') {
-          setQuestions(data.questions as Question[]);
-          return;
-        }
-        if (data.type === 'banks:updated') {
-          setQuestionBanks((data.questionBanks as QuestionBank[]) || []);
-          return;
-        }
-        if (data.type === 'announcements:updated') {
-          setAnnouncements((data.announcements as Announcement[]) || []);
+      onQuestionBanks: (banks) => {
+        if (active) setQuestionBanks(banks);
+      },
+      onQuestions: (qs) => {
+        if (active) setQuestions(qs);
+      },
+      onSessions: (sess) => {
+        if (active) setSessions(sess);
+      },
+      onViolations: (vios) => {
+        if (active) setViolations(vios);
+      },
+      onAuditLogs: (logs) => {
+        if (active) setAuditLogs(logs);
+      },
+      onAnnouncements: (anns) => {
+        if (active) setAnnouncements(anns);
+      },
+      onMasterStudents: (list) => {
+        if (active) setMasterStudents(list);
+      },
+      onMasterTeachers: (list) => {
+        if (active) setMasterTeachers(list);
+      },
+      onClasses: (list) => {
+        if (active) setClasses(list);
+      },
+      onSubjects: (list) => {
+        if (active) setSubjects(list);
+      },
+      onMaterials: (list) => {
+        if (active) setMaterials(list);
+      },
+      onUsers: (list) => {
+        if (active) setUsers(list);
+      },
+      onLiveViolation: (v) => {
+        if (!active) return;
+        setLiveAlert(v);
+        if (soundEnabledRef.current) {
+          playProctorAlert();
         }
       },
     });
 
-    socketRef.current = sock;
     return () => {
-      sock.close();
-      socketRef.current = null;
+      active = false;
+      unsub();
     };
   }, []);
 
@@ -455,6 +483,14 @@ export const ProctorDashboard: React.FC<ProctorDashboardProps> = ({
     if (!activeBank) return questions;
     return questions.filter((q) => !q.bankId || q.bankId === activeBank.id);
   }, [questions, activeBank]);
+
+  useEffect(() => {
+    examConfigRef.current = examConfig;
+    questionsRef.current = questions;
+    activeExamQuestionsRef.current = activeExamQuestions;
+    sessionsRef.current = sessions;
+    violationsRef.current = violations;
+  }, [examConfig, questions, activeExamQuestions, sessions, violations]);
 
   // Questions inside currently selected bank (for Bank Soal detail view)
   const currentBankQuestions = useMemo(() => {
@@ -681,21 +717,29 @@ export const ProctorDashboard: React.FC<ProctorDashboardProps> = ({
     return { active, paused, finished, totalViolations };
   }, [sessions]);
 
-  const sendCommand = (payload: unknown) => {
-    socketRef.current?.send(payload);
+  const sendCommand = (payload: Record<string, unknown>) => {
+    void executeProctorCommand(payload, {
+      examConfig: examConfigRef.current || DEFAULT_PUBLIC_EXAM_CONFIG,
+      activeQuestions: activeExamQuestionsRef.current,
+      allQuestions: questionsRef.current,
+      sessions: sessionsRef.current,
+      violations: violationsRef.current,
+    });
   };
 
   // Bank & Question CRUD
   const handleSaveQuestion = async (q: Question) => {
-    const isEdit = questions.some((existing) => existing.id === q.id);
-    const payload = {
+    const activeId = activeBank?.id || DEFAULT_ACTIVE_BANK_ID;
+    const payload: Question = {
       ...q,
-      bankId: q.bankId || selectedBankId || assignTargetBankId || activeBank?.id || undefined,
+      bankId: q.bankId || selectedBankId || assignTargetBankId || activeId,
     };
-    await fetch(isEdit ? `/api/questions/${q.id}` : '/api/questions', {
-      method: isEdit ? 'PUT' : 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+    await saveQuestionInFirestore({
+      question: payload,
+      activeBankId: activeId,
+      sessions,
+      activeQuestions: activeExamQuestions,
+      examConfig: examConfig || undefined,
     });
     setEditorOpen(false);
     setEditingQuestion(null);
@@ -705,10 +749,9 @@ export const ProctorDashboard: React.FC<ProctorDashboardProps> = ({
     q: Question,
     patch: Partial<Pick<Question, 'subject' | 'difficulty'>>
   ) => {
-    await fetch(`/api/questions/${q.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...q, ...patch }),
+    await saveQuestionInFirestore({
+      question: { ...q, ...patch },
+      activeBankId: activeBank?.id || DEFAULT_ACTIVE_BANK_ID,
     });
   };
 
@@ -718,12 +761,14 @@ export const ProctorDashboard: React.FC<ProctorDashboardProps> = ({
   ) => {
     const finalTargetId = targetId || assignTargetBankId || activeBank?.id;
     if (!finalTargetId) return;
-    const res = await fetch(`/api/questions/${questionId}/assign-bank`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ targetBankId: finalTargetId, mode: 'copy' }),
+    const sourceQuestion = questions.find((item) => item.id === questionId);
+    if (!sourceQuestion) return;
+    const data = await assignQuestionsToBankInFirestore({
+      sourceQuestions: [sourceQuestion],
+      targetBankId: finalTargetId,
+      activeBankId: activeBank?.id || DEFAULT_ACTIVE_BANK_ID,
+      mode: 'copy',
     });
-    const data = await res.json().catch(() => ({}));
     const targetBank = questionBanks.find((b) => b.id === finalTargetId);
     if (data.alreadyInBank) {
       setImportToast(`Soal sudah ada di ${targetBank?.name || 'ujian aktif'}.`);
@@ -735,16 +780,15 @@ export const ProctorDashboard: React.FC<ProctorDashboardProps> = ({
   const handleBatchAssignToBank = async () => {
     const finalTargetId = assignTargetBankId || activeBank?.id;
     if (!finalTargetId || selectedCatalogIds.length === 0) return;
-    const res = await fetch('/api/questions/assign-batch', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        questionIds: selectedCatalogIds,
-        targetBankId: finalTargetId,
-        mode: 'copy',
-      }),
+    const selectedQuestions = questions.filter((item) =>
+      selectedCatalogIds.includes(item.id)
+    );
+    const data = await assignQuestionsToBankInFirestore({
+      sourceQuestions: selectedQuestions,
+      targetBankId: finalTargetId,
+      activeBankId: activeBank?.id || DEFAULT_ACTIVE_BANK_ID,
+      mode: 'copy',
     });
-    const data = await res.json().catch(() => ({}));
     const targetBank = questionBanks.find((b) => b.id === finalTargetId);
     setSelectedCatalogIds([]);
     setImportToast(
@@ -753,7 +797,7 @@ export const ProctorDashboard: React.FC<ProctorDashboardProps> = ({
   };
 
   const handleDeleteQuestion = async (id: string) => {
-    await fetch(`/api/questions/${id}`, { method: 'DELETE' });
+    await deleteQuestionInFirestore(id);
     setSelectedCatalogIds((prev) => prev.filter((item) => item !== id));
   };
 
@@ -762,19 +806,20 @@ export const ProctorDashboard: React.FC<ProctorDashboardProps> = ({
       ...structuredClone(q),
       id: `q-dup-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
     };
-    await fetch('/api/questions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(clone),
+    await saveQuestionInFirestore({
+      question: clone,
+      activeBankId: activeBank?.id || DEFAULT_ACTIVE_BANK_ID,
     });
   };
 
   const handleSaveWeights = async (e: React.FormEvent) => {
     e.preventDefault();
-    await fetch('/api/questions/weights', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ weights: weightsDraft }),
+    await updateQuestionWeightsInFirestore({
+      weights: weightsDraft,
+      questions,
+      activeBankId: activeBank?.id || DEFAULT_ACTIVE_BANK_ID,
+      sessions,
+      examConfig: examConfig || DEFAULT_PUBLIC_EXAM_CONFIG,
     });
     setWeightsModalOpen(false);
   };
@@ -878,19 +923,10 @@ export const ProctorDashboard: React.FC<ProctorDashboardProps> = ({
   const handleSaveStudent = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!stuForm.name.trim() || !stuForm.nis.trim()) return;
-    if (editingStudent) {
-      await fetch(`/api/master/students/${editingStudent.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(stuForm),
-      });
-    } else {
-      await fetch('/api/master/students', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(stuForm),
-      });
-    }
+    await saveMasterStudentInFirestore({
+      id: editingStudent?.id,
+      ...stuForm,
+    });
     setStudentModalOpen(false);
     setEditingStudent(null);
   };
@@ -907,11 +943,7 @@ export const ProctorDashboard: React.FC<ProctorDashboardProps> = ({
       })
       .filter((s) => s.name && s.nis);
     if (students.length === 0) return;
-    await fetch('/api/master/students/import', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ students }),
-    });
+    await importMasterStudentsInFirestore(students);
     setImportStudentsText('');
     setImportStudentsOpen(false);
   };
@@ -926,19 +958,10 @@ export const ProctorDashboard: React.FC<ProctorDashboardProps> = ({
       classes: teaForm.classes.split(',').map((s) => s.trim()).filter(Boolean),
       phone: teaForm.phone.trim() || '-',
     };
-    if (editingTeacher) {
-      await fetch(`/api/master/teachers/${editingTeacher.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-    } else {
-      await fetch('/api/master/teachers', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-    }
+    await saveMasterTeacherInFirestore({
+      id: editingTeacher?.id,
+      ...payload,
+    });
     setTeacherModalOpen(false);
     setEditingTeacher(null);
   };
@@ -946,30 +969,23 @@ export const ProctorDashboard: React.FC<ProctorDashboardProps> = ({
   const handleStudentsFileUpload = async (file: File) => {
     const parsed = await parseStudentsSpreadsheetFile(file);
     if (parsed.length === 0) return;
-    await fetch('/api/master/students/import', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ students: parsed }),
-    });
+    await importMasterStudentsInFirestore(parsed);
     setImportToast(`${parsed.length} data siswa berhasil diimpor dari ${file.name}.`);
   };
 
   const handleTeachersFileUpload = async (file: File) => {
     const parsed = await parseTeachersSpreadsheetFile(file);
     if (parsed.length === 0) return;
-    await fetch('/api/master/teachers/import', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ teachers: parsed }),
-    });
+    await importMasterTeachersInFirestore(parsed);
     setImportToast(`${parsed.length} data guru berhasil diimpor dari ${file.name}.`);
   };
 
   const handleUpdateConfig = async (patch: Partial<ExamConfig>) => {
-    await fetch('/api/config', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(patch),
+    await updateExamConfigInFirestore({
+      currentConfig: examConfig || DEFAULT_PUBLIC_EXAM_CONFIG,
+      patch,
+      activeQuestions: activeExamQuestions,
+      sessions,
     });
   };
 
@@ -1335,10 +1351,10 @@ export const ProctorDashboard: React.FC<ProctorDashboardProps> = ({
             <span>Sinkronisasi</span>
             <span
               className={`font-semibold ${
-                wsConnected ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'
+                firestoreConnected ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'
               }`}
             >
-              {wsConnected ? 'Real-Time Aktif' : 'Menghubungkan...'}
+              {firestoreConnected ? 'Real-Time Aktif' : 'Menghubungkan...'}
             </span>
           </div>
         </div>
@@ -2321,7 +2337,7 @@ export const ProctorDashboard: React.FC<ProctorDashboardProps> = ({
                             <button
                               type="button"
                               onClick={async () => {
-                                await fetch(`/api/master/students/${stu.id}`, { method: 'DELETE' });
+                                await deleteMasterStudentInFirestore(stu);
                               }}
                               title="Hapus siswa"
                               className="w-8 h-8 inline-flex items-center justify-center bg-white hover:bg-rose-50 text-slate-500 hover:text-rose-600 border border-slate-200 hover:border-rose-200 rounded-lg transition-colors"
@@ -2438,7 +2454,7 @@ export const ProctorDashboard: React.FC<ProctorDashboardProps> = ({
                             <button
                               type="button"
                               onClick={async () => {
-                                await fetch(`/api/master/teachers/${t.id}`, { method: 'DELETE' });
+                                await deleteMasterTeacherInFirestore(t.id);
                               }}
                               title="Hapus guru"
                               className="w-8 h-8 inline-flex items-center justify-center bg-white hover:bg-rose-50 text-slate-500 hover:text-rose-600 border border-slate-200 hover:border-rose-200 rounded-lg transition-colors"
@@ -2463,11 +2479,7 @@ export const ProctorDashboard: React.FC<ProctorDashboardProps> = ({
               onSubmit={async (e) => {
                 e.preventDefault();
                 if (!classForm.name.trim()) return;
-                await fetch('/api/master/classes', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify(classForm),
-                });
+                await createClassRoomInFirestore(classForm);
                 setClassForm({ name: '', level: 'Tingkat 6 SD', homeroomTeacher: '' });
               }}
               className="bg-white border border-slate-200/80 rounded-2xl p-5 grid grid-cols-1 md:grid-cols-4 gap-3 items-end shadow-2xs"
@@ -2537,7 +2549,7 @@ export const ProctorDashboard: React.FC<ProctorDashboardProps> = ({
                         <button
                           type="button"
                           onClick={async () => {
-                            await fetch(`/api/master/classes/${cls.id}`, { method: 'DELETE' });
+                            await deleteClassRoomInFirestore(cls.id);
                           }}
                           title="Hapus kelas"
                           className="w-8 h-8 inline-flex items-center justify-center bg-white hover:bg-rose-50 text-slate-500 hover:text-rose-600 border border-slate-200 hover:border-rose-200 rounded-lg transition-colors"
@@ -2560,11 +2572,7 @@ export const ProctorDashboard: React.FC<ProctorDashboardProps> = ({
               onSubmit={async (e) => {
                 e.preventDefault();
                 if (!subjectForm.code.trim() || !subjectForm.name.trim()) return;
-                await fetch('/api/master/subjects', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify(subjectForm),
-                });
+                await createSubjectInFirestore(subjectForm);
                 setSubjectForm({ code: '', name: '', category: 'Umum' });
               }}
               className="bg-white border border-slate-200/80 rounded-2xl p-5 grid grid-cols-1 md:grid-cols-4 gap-3 items-end shadow-2xs"
@@ -2631,7 +2639,7 @@ export const ProctorDashboard: React.FC<ProctorDashboardProps> = ({
                         <button
                           type="button"
                           onClick={async () => {
-                            await fetch(`/api/master/subjects/${sub.id}`, { method: 'DELETE' });
+                            await deleteSubjectInFirestore(sub.id);
                           }}
                           title="Hapus mapel"
                           className="w-8 h-8 inline-flex items-center justify-center bg-white hover:bg-rose-50 text-slate-500 hover:text-rose-600 border border-slate-200 hover:border-rose-200 rounded-lg transition-colors"
@@ -2701,11 +2709,7 @@ export const ProctorDashboard: React.FC<ProctorDashboardProps> = ({
               onSubmit={async (e) => {
                 e.preventDefault();
                 if (!materialForm.title.trim() || !materialForm.content.trim()) return;
-                await fetch('/api/materials', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify(materialForm),
-                });
+                await createMaterialInFirestore(materialForm);
                 setMaterialForm({ title: '', subject: 'Matematika SD', targetClass: 'KELAS 6', summary: '', content: '' });
               }}
               className="bg-white border border-slate-200/80 rounded-2xl p-6 space-y-3.5 shadow-2xs"
@@ -2756,7 +2760,7 @@ export const ProctorDashboard: React.FC<ProctorDashboardProps> = ({
                     <button
                       type="button"
                       onClick={async () => {
-                        await fetch(`/api/materials/${mat.id}`, { method: 'DELETE' });
+                        await deleteMaterialInFirestore(mat.id);
                       }}
                       className="w-8 h-8 inline-flex items-center justify-center text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
                     >
@@ -3361,7 +3365,13 @@ export const ProctorDashboard: React.FC<ProctorDashboardProps> = ({
                                 <button
                                   type="button"
                                   onClick={async () => {
-                                    await fetch(`/api/question-banks/${bank.id}/activate`, { method: 'POST' });
+                                    await activateQuestionBankInFirestore({
+                                      bankId: bank.id,
+                                      banks: questionBanks,
+                                      questions,
+                                      examConfig: examConfig || DEFAULT_PUBLIC_EXAM_CONFIG,
+                                      sessions,
+                                    });
                                   }}
                                   className="text-indigo-600 hover:text-indigo-800 hover:underline font-medium"
                                 >
@@ -3393,7 +3403,12 @@ export const ProctorDashboard: React.FC<ProctorDashboardProps> = ({
                                   <button
                                     type="button"
                                     onClick={async () => {
-                                      await fetch(`/api/question-banks/${bank.id}`, { method: 'DELETE' });
+                                      await deleteQuestionBankInFirestore({
+                                        bankId: bank.id,
+                                        banks: questionBanks,
+                                        questions,
+                                        examConfig: examConfig || DEFAULT_PUBLIC_EXAM_CONFIG,
+                                      });
                                     }}
                                     title="Hapus bank soal"
                                     className="w-8 h-8 inline-flex items-center justify-center bg-white hover:bg-rose-50 text-slate-500 hover:text-rose-600 border border-slate-200 hover:border-rose-200 rounded-lg transition-colors"
@@ -5370,11 +5385,7 @@ export const ProctorDashboard: React.FC<ProctorDashboardProps> = ({
               onSubmit={async (e) => {
                 e.preventDefault();
                 if (!annForm.title.trim() || !annForm.content.trim()) return;
-                await fetch('/api/announcements', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify(annForm),
-                });
+                await createAnnouncementInFirestore(annForm);
                 setAnnForm({ title: '', content: '' });
               }}
               className="bg-white border border-slate-200/80 rounded-2xl p-6 space-y-4 shadow-2xs"
@@ -5415,7 +5426,7 @@ export const ProctorDashboard: React.FC<ProctorDashboardProps> = ({
                   <button
                     type="button"
                     onClick={async () => {
-                      await fetch(`/api/announcements/${ann.id}`, { method: 'DELETE' });
+                      await deleteAnnouncementInFirestore(ann.id);
                     }}
                     className="w-8 h-8 inline-flex items-center justify-center text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
                   >
@@ -5434,11 +5445,7 @@ export const ProctorDashboard: React.FC<ProctorDashboardProps> = ({
               onSubmit={async (e) => {
                 e.preventDefault();
                 if (!userForm.name.trim() || !userForm.username.trim()) return;
-                await fetch('/api/users', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify(userForm),
-                });
+                await createProctorUserInFirestore(userForm);
                 setUserForm({ name: '', username: '', role: 'guru' });
               }}
               className="bg-white border border-slate-200/80 rounded-2xl p-5 grid grid-cols-1 md:grid-cols-4 gap-3 items-end shadow-2xs"
@@ -5509,7 +5516,7 @@ export const ProctorDashboard: React.FC<ProctorDashboardProps> = ({
                         <button
                           type="button"
                           onClick={async () => {
-                            await fetch(`/api/users/${u.id}/toggle`, { method: 'PATCH' });
+                            await toggleProctorUserInFirestore(u);
                           }}
                           className={u.active ? 'text-emerald-700 font-semibold' : 'text-slate-400'}
                         >
@@ -5520,7 +5527,7 @@ export const ProctorDashboard: React.FC<ProctorDashboardProps> = ({
                         <button
                           type="button"
                           onClick={async () => {
-                            await fetch(`/api/users/${u.id}`, { method: 'DELETE' });
+                            await deleteProctorUserInFirestore(u);
                           }}
                           title="Hapus user"
                           className="w-8 h-8 inline-flex items-center justify-center bg-white hover:bg-rose-50 text-slate-500 hover:text-rose-600 border border-slate-200 hover:border-rose-200 rounded-lg transition-colors"
@@ -5907,6 +5914,9 @@ export const ProctorDashboard: React.FC<ProctorDashboardProps> = ({
         <BulkQuestionImportModal
           questionBanks={questionBanks}
           defaultBankId={selectedBankId}
+          allQuestions={questions}
+          examConfig={examConfig}
+          sessions={sessions}
           onImportComplete={() => {
             setImportToast('Soal dari file CSV/Excel berhasil divalidasi dan diimpor ke bank soal.');
           }}
@@ -5967,23 +5977,19 @@ export const ProctorDashboard: React.FC<ProctorDashboardProps> = ({
             onSubmit={async (e) => {
               e.preventDefault();
               if (!bankForm.code.trim() || !bankForm.name.trim()) return;
-              await fetch('/api/question-banks', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  code: bankForm.code,
-                  name: bankForm.name,
-                  subject: bankForm.subject,
-                  targetClass: bankForm.targetClass,
-                  targetCounts: {
-                    multiple_choice: bankForm.pg,
-                    true_false: bankForm.tf,
-                    mcma: bankForm.mcma,
-                    complex_multiple_choice: 0,
-                    matching: 0,
-                    essay: 0,
-                  },
-                }),
+              await createQuestionBankInFirestore({
+                code: bankForm.code,
+                name: bankForm.name,
+                subject: bankForm.subject,
+                targetClass: bankForm.targetClass,
+                targetCounts: {
+                  multiple_choice: bankForm.pg,
+                  true_false: bankForm.tf,
+                  mcma: bankForm.mcma,
+                  complex_multiple_choice: 0,
+                  matching: 0,
+                  essay: 0,
+                },
               });
               setBankForm({
                 code: '',
